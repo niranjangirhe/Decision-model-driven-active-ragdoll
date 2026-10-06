@@ -18,7 +18,7 @@ namespace ActiveRagdoll
 
     /// <summary>
     /// Selector B: hand-written if/else on the event's numeric features (it never reads the text).
-    /// Also the fallback when a model selector times out. Thresholds come from the milestone 1 push
+    /// Also the fallback when a model selector times out. Thresholds come from the ragdoll push
     /// tests: a standing body without a step survives about 15-25 N*s; curling while seated survives
     /// harder side pushes than sitting upright.
     /// </summary>

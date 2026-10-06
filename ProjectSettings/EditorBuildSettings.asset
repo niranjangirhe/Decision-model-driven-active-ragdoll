@@ -6,14 +6,11 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
-    path: Assets/Scenes/SampleScene.unity
-    guid: 99c9720ab356a0642a771bea13969a05
-  - enabled: 1
-    path: Assets/Scenes/M1_StandSit.unity
-    guid: 77029013e806a1346b19feff5dcbf36a
-  - enabled: 1
     path: Assets/Scenes/S1_BenchFallingObject.unity
     guid: 570fffd7186d0124aa11193629d179b9
+  - enabled: 1
+    path: Assets/Scenes/S2_StandingImpact.unity
+    guid: 4e8c4b3222100ac458c90ec8f0afb737
   m_configObjects:
     com.unity.dt.app-ui: {fileID: 11400000, guid: 1b1c20d82303e4b5781c3ef50ac1449f, type: 2}
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}

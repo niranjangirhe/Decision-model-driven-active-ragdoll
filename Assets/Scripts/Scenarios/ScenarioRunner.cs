@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.InputSystem;
 
 namespace ActiveRagdoll
 {
@@ -13,7 +12,8 @@ namespace ActiveRagdoll
     ///               horizontal offset.
     ///   Scenario 2: standing, a ball is thrown at the body. Random direction, body part aimed at,
     ///               and impulse (ball mass x speed). Sometimes a wall, sometimes a railing nearby.
-    /// Play mode: N = next seed, R = rerun seed. Scripted: <see cref="RunTrial"/>.
+    /// Play mode: trials run one after another with increasing seeds (autoAdvance).
+    /// Experiments: <see cref="RunTrialRecord"/>, stepped from script.
     /// </summary>
     public class ScenarioRunner : MonoBehaviour, ISimStep
     {
@@ -24,8 +24,8 @@ namespace ActiveRagdoll
         public bool autoStartInPlayMode = true;
         public float settleTime = 1.0f;
         public float trialDuration = 5.0f;
-        [Tooltip("Play mode only: start the next seed automatically when a trial ends (used for demo videos).")]
-        public bool autoAdvance = false;
+        [Tooltip("Play mode only: start the next seed automatically when a trial ends.")]
+        public bool autoAdvance = true;
 
         [Header("Scenario 1 ranges")]
         public Vector2 massRangeKg = new Vector2(1f, 15f);
@@ -56,14 +56,6 @@ namespace ActiveRagdoll
         void Start()
         {
             if (autoStartInPlayMode) StartTrial(seed);
-        }
-
-        void Update()
-        {
-            var kb = Keyboard.current;
-            if (kb == null) return;
-            if (kb.nKey.wasPressedThisFrame) StartTrial(++seed);
-            if (kb.rKey.wasPressedThisFrame) StartTrial(seed);
         }
 
         public void StartTrial(int trialSeed)

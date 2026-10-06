@@ -4,7 +4,8 @@ using UnityEngine;
 namespace ActiveRagdoll
 {
     /// <summary>
-    /// Milestone 1 check, run from play mode (or from the CLI with eval).
+    /// Pose and push checks for the ragdoll, run from play mode in a scenario scene (character
+    /// name "Character"), for example from the Unity CLI with eval.
     /// Physics is stepped by script, so it runs faster than real time and does not need the
     /// editor window to have focus. Every test starts from a fresh snap into the start pose.
     /// </summary>

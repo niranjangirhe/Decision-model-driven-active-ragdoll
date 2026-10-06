@@ -10,8 +10,6 @@ using UnityEngine.SceneManagement;
 /// </summary>
 public static class RagdollSceneBuilder
 {
-    public const string StandSitScenePath = "Assets/Scenes/M1_StandSit.unity";
-
     [MenuItem("Ragdoll/Apply Physics Project Settings")]
     public static void ApplyPhysicsProjectSettings()
     {
@@ -34,35 +32,6 @@ public static class RagdollSceneBuilder
 
         AssetDatabase.SaveAssets();
         Debug.Log("[RagdollSceneBuilder] Physics project settings applied.");
-    }
-
-    [MenuItem("Ragdoll/Build M1 Stand-Sit Scene")]
-    public static void BuildStandSitScene()
-    {
-        var scene = EditorSceneManager.NewScene(NewSceneSetup.DefaultGameObjects, NewSceneMode.Single);
-
-        new GameObject("SimulationSettings").AddComponent<SimulationSettings>();
-        MakeGround();
-
-        // Bench along X, seat top at 0.45 m.
-        var bench = MakeBox("Bench", new Vector3(1.5f, 0.225f, 0f), new Vector3(1.2f, 0.45f, 0.40f), new Color(0.45f, 0.35f, 0.25f));
-        var seat = new GameObject("SeatAnchor").transform;
-        seat.SetParent(bench.transform, false);
-        seat.position = new Vector3(1.5f, 0.45f, 0f);
-
-        var standing = MakeCharacter("Standing", new Vector3(-0.8f, 0f, 0f), "stand", null, new Color(0.85f, 0.55f, 0.35f));
-        var sitting = MakeCharacter("Sitting", new Vector3(1.5f, 0f, 0f), "sit", seat, new Color(0.35f, 0.6f, 0.85f));
-
-        var overlay = new GameObject("DebugOverlay").AddComponent<RagdollDebugOverlay>();
-        overlay.characters = new[] { standing, sitting };
-
-        var cam = Camera.main;
-        cam.transform.position = new Vector3(0.35f, 1.3f, 4.2f);
-        cam.transform.LookAt(new Vector3(0.35f, 0.8f, 0f));
-
-        EditorSceneManager.SaveScene(scene, StandSitScenePath);
-        AddToBuild(StandSitScenePath);
-        Debug.Log("[RagdollSceneBuilder] Built " + StandSitScenePath);
     }
 
     public const string Scenario1Path = "Assets/Scenes/S1_BenchFallingObject.unity";
@@ -100,8 +69,8 @@ public static class RagdollSceneBuilder
         runner.scenario = scenario;
         runner.character = character;
 
-        var overlay = new GameObject("DebugOverlay").AddComponent<RagdollDebugOverlay>();
-        overlay.characters = new[] { character };
+        var overlay = new GameObject("DecisionOverlay").AddComponent<RagdollDebugOverlay>();
+        overlay.character = character;
 
         var cam = Camera.main;
         cam.transform.position = new Vector3(2.2f, 1.6f, 3.2f);
