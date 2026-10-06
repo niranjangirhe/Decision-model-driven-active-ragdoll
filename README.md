@@ -1,8 +1,8 @@
 # Decision-model-driven active ragdoll
 
-This project is a physically simulated character that reacts to surprise events, such as a box falling on it or a ball hitting it. A small language model, running locally, decides how it reacts. The model reads a one-line description of what just happened and answers with a reaction and a muscle stiffness. The joint motors then carry out that reaction in the physics simulation. The body never plays an animation clip: every frame of its motion comes from the rigid-body simulation.
+This project is a physically simulated character that reacts to surprise events, such as a box falling on it or a ball hitting it. A small decision model, running on the same machine, decides how it reacts. The model reads a one-line description of what just happened and answers with a reaction and a muscle stiffness. The joint motors then carry out that reaction in the physics simulation. The body never plays an animation clip: every frame of its motion comes from the rigid-body simulation.
 
-The idea comes from Faloutsos, van de Panne and Terzopoulos, *Composable Controllers for Physics-Based Character Animation* (SIGGRAPH 2001). In that paper, a supervisor decides which specialist controller takes charge of the body. In this project, the supervisor is a decision model that reads text.
+A decision model is different from a chatbot-style language model: it does not write text. It reads the description once and gives a probability to each answer in a fixed list, which makes it fast enough to run inside a game loop.
 
 Below, the same falling box (14 kg) meets two different decisions. On the left the character braces, and the box hits its head. On the right it curls up, and the box misses.
 
@@ -35,14 +35,14 @@ I compared four selectors:
 |---|---|
 | Fixed | Always the same reaction (brace). The baseline. |
 | Rules | Hand-written if/else on the numbers behind the sentence (object mass, time to impact, impulse, free space). It never reads the text. |
-| Laya | Convai's Laya, an open-weights model that answers typed questions (pick one, score, yes/no) in one forward pass. Asked three questions per event: which reaction, how stiff, recover or not. |
-| GLiClass | Knowledgator's zero-shot text classifier. Picks the reaction only; stiffness comes from the rules. |
+| Laya | Convai's Laya, an open-weights decision model (421M parameters, built on a ModernBERT-large encoder). It answers typed questions (pick one, score, yes/no) in one forward pass and never generates text. Asked three questions per event: which reaction, how stiff, recover or not. |
+| GLiClass | Knowledgator's zero-shot text classifier, also built on a ModernBERT encoder. Picks the reaction only; stiffness comes from the rules. |
 
-Both language models run on the GPU through a local server. Neither was fine-tuned: they are used zero-shot, exactly as released.
+Both models run on the GPU through a local server. Neither was fine-tuned: they are used zero-shot, exactly as released.
 
 ## Findings
 
-The experiment has two scenarios with 30 random events each. Every selector faced exactly the same 30 events, with the same object, mass and throw. The first results showed that each language model kept repeating one favourite reaction. To check whether the models added anything beyond that favourite, I added two more fixed baselines, "always curl up" and "always dodge". That makes 360 trials in total.
+The experiment has two scenarios with 30 random events each. Every selector faced exactly the same 30 events, with the same object, mass and throw. The first results showed that each model kept repeating one favourite reaction. To check whether the models added anything beyond that favourite, I added two more fixed baselines, "always curl up" and "always dodge". That makes 360 trials in total.
 
 ### 1. Picking the right reaction matters
 
@@ -59,11 +59,11 @@ In scenario 1, the character sits on a bench, and an object weighing 1 to 15 kg 
 
 Bracing upright leaves the head where the object is going, and the head was hit in 24 of 30 trials. Curling up moves the head down and forward, out of the object's path, and the head was never hit. Leaning sideways works almost as well. Faced with identical events, one reaction leads to a head hit most of the time and another almost never does. This is the case for having a decision layer at all.
 
-### 2. The language models did not read the events
+### 2. Without training, the models did not read the events
 
 Laya chose "curl up" for all 30 bench events, and GLiClass chose "dodge" for all 30, whatever the sentence said about the object, its weight or the time left. Their strong bench results come from a favourite reaction that happens to suit a seated character. Laya's numbers are the same as "always curl up", and GLiClass's are the same as "always dodge". In the standing scenario both models varied their choices more, but I could not link the variation to anything in the event.
 
-A separate check agrees. I wrote twelve event sentences by hand and listed the reactions I would accept for each. Laya gave an acceptable answer for 5 of them and GLiClass for 4, again mostly by repeating a favourite. Laya's documentation states that its base model is close to chance on this kind of task without fine-tuning, and these results match that. Laya also showed the position bias its documentation warns about. When asked in the plain way, it picked whichever reaction was listed first in 10 of 12 cases. All results in this README use the documented fix, which asks once for each ordering of the options and averages the answers. The fix adds about 18 ms to each decision.
+A separate check agrees. I wrote twelve event sentences by hand and listed the reactions I would accept for each. Laya gave an acceptable answer for 5 of them and GLiClass for 4, again mostly by repeating a favourite. This matches Laya's model card, which describes the base checkpoint as a starting point for fine-tuning rather than a zero-shot decision engine. On Convai's own benchmark the base checkpoint scores 0.362, against 0.318 for random guessing, while a fine-tuned checkpoint scores 0.766. Laya also showed the position bias its documentation warns about. When asked in the plain way, it picked whichever reaction was listed first in 10 of 12 cases. All results in this README use the documented fix, which asks once for each ordering of the options and averages the answers. The fix adds about 18 ms to each decision.
 
 Used zero-shot, then, neither model makes an informed decision. A model that reads the event would need training on examples, and the simulation can produce those examples itself (see the section on next steps).
 
@@ -102,7 +102,7 @@ The simulated body stands and sits stably, and it moves between reactions smooth
 
 ### Conclusion
 
-The whole pipeline runs in real time. The physics senses an event, the event is described in words, a local model decides within 50 ms, and a simulated body carries out the decision. The decision clearly matters: with the same falling box, one reaction gets the head hit and another does not. Used without training, however, the two language models do not make that decision well. Each repeats a favourite answer that happens to be right in one scenario and wrong in the other. The speed and the connections between the parts already work well enough. What limits the system now is how the model is trained and how good its reactions are.
+The whole pipeline runs in real time. The physics senses an event, the event is described in words, a local model decides within 50 ms, and a simulated body carries out the decision. The decision clearly matters: with the same falling box, one reaction gets the head hit and another does not. Used without training, however, the two models do not make that decision well. Each repeats a favourite answer that happens to be right in one scenario and wrong in the other. The speed and the connections between the parts already work well enough. What limits the system now is how the model is trained and how good its reactions are.
 
 ## Next step: from choosing reactions to generating them
 
@@ -118,7 +118,7 @@ Three further changes point the same way:
 
 ## Limitations
 
-- The language models were used zero-shot, and they did not read the events (finding 2). I did not tune the prompt wording to raise their scores.
+- Both models were used zero-shot, and they did not read the events (finding 2). I did not tune the prompt wording to raise their scores.
 - There are only 30 events per scenario. Differences of a few percentage points, such as 7% against 3%, are within noise. Large differences, such as 80% against 0%, are not.
 - "Protect head" does not stop heavy objects (finding 3). "Grab support" reaches for the railing but cannot hold on to it. There is no get-up reaction, so "recover" only works while the character is still upright. When seated, "stagger and recover" is replaced by a seated brace, because there is no step to take from a bench.
 - The stepping reaction only handles small pushes (finding 6).
