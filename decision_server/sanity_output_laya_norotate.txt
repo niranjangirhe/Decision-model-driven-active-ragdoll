@@ -1,0 +1,29 @@
+server: {'models': ['laya'], 'device': 'cuda', 'gpu': 'NVIDIA GeForce RTX 4070 SUPER', 'laya_rotate': False, 'revisions': {'laya': '7b928d828b7b0e022f929d9bd2e44165aa270148', 'gliclass': 'ac369222ca4375ca66ebaf7fb5220f223514c035'}, 'versions': {'laya': '0.4.12', 'gliclass': '0.1.21', 'torch': '2.14.1+cu126', 'transformers': '5.20.2'}}
+
+=== laya
+NO  brace            p=0.48 stiffness=0.54 recover=True (p=0.56)  | expected ['dodge_sideways', 'protect_head']
+     Character is standing. A heavy object (about 10 kg) is falling toward the head, about 0.5 s until impact. Open space to the left.
+ok  brace            p=0.34 stiffness=0.50 recover=True (p=0.76)  | expected ['brace']
+     Character is standing. A light impact to the chest from the front. Open space to the left and to the right.
+NO  brace            p=0.36 stiffness=0.59 recover=True (p=0.65)  | expected ['stagger_recover']
+     Character is standing. A strong impact to the chest from behind. Open space to the left and to the right.
+NO  brace            p=0.54 stiffness=0.56 recover=True (p=0.60)  | expected ['fall_and_curl']
+     Character is standing. A very strong impact to the hips from the left. Wall 0.5 m to the right.
+NO  brace            p=0.44 stiffness=0.50 recover=True (p=0.63)  | expected ['protect_head']
+     Character is sitting on a bench. A light object (about 1 kg) is falling toward the head, about 0.2 s until impact.
+NO  brace            p=0.44 stiffness=0.50 recover=True (p=0.61)  | expected ['grab_support', 'stagger_recover']
+     Character is standing. A moderate impact to the left shoulder from the left. A railing is within reach to the right.
+NO  brace            p=0.41 stiffness=0.47 recover=True (p=0.75)  | expected ['stagger_recover']
+     Character is walking. The left foot hit an obstacle mid-step.
+ok  fall_and_curl    p=0.85 stiffness=0.40 recover=True (p=0.65)  | expected ['fall_and_curl', 'go_limp']
+     Character is standing. Both feet have lost contact with the ground.
+ok  brace            p=0.62 stiffness=0.56 recover=True (p=0.78)  | expected ['fall_and_curl', 'brace']
+     Character is sitting on a bench. A very strong impact to the chest from the front.
+NO  brace            p=0.51 stiffness=0.56 recover=True (p=0.61)  | expected ['protect_head', 'dodge_sideways']
+     Character is standing. A medium-weight object (about 3 kg) is flying toward the head from the right, about 0.3 s until impact. Open space to the left.
+ok  fall_and_curl    p=0.66 stiffness=0.52 recover=True (p=0.68)  | expected ['fall_and_curl', 'protect_head']
+     Character is lying on the ground. A heavy object (about 8 kg) is falling toward the chest, about 0.4 s until impact.
+ok  brace            p=0.37 stiffness=0.55 recover=True (p=0.58)  | expected ['stagger_recover', 'brace']
+     Character is standing. A moderate impact to the right leg from the right. Open space to the left and to the right.
+--> laya: 5/12 acceptable; choices {'brace': 10, 'fall_and_curl': 2}
+    latency median: server 24.5 ms, round trip 26.0 ms

@@ -18,7 +18,7 @@ namespace ActiveRagdoll
     [RequireComponent(typeof(ActiveRagdollController), typeof(EventSensor))]
     public class ReactionManager : MonoBehaviour, ISimStep
     {
-        [Tooltip("fixed | rules (the model selectors are added in milestone 3)")]
+        [Tooltip("fixed | rules | laya | gliclass | slow:<ms> (test)")]
         public string selectorName = "rules";
         public float timeoutMs = 200f;
         public float reflexStiffness = 1.6f;
@@ -88,6 +88,8 @@ namespace ActiveRagdoll
             {
                 case "fixed": return new FixedSelector();
                 case "rules": return new RulesSelector();
+                case "laya": return new HttpModelSelector("laya");
+                case "gliclass": return new HttpModelSelector("gliclass");
                 case var n when n.StartsWith("slow:"):
                     return new SlowTestSelector { DelayMs = int.Parse(n.Substring(5)) };
                 default:
@@ -139,6 +141,13 @@ namespace ActiveRagdoll
                 {
                     if (id != requestId) return; // answer for an old request
                     if (timedOut) { lateAnswer = d; return; }
+                    if (d.Behaviour == null)
+                    {
+                        // The selector failed (server down, bad reply): rules answer now, flagged.
+                        var fb = rules.Decide(LastEvent);
+                        fb.Fallback = true; fb.Error = d.Error; fb.LatencyMs = d.LatencyMs;
+                        d = fb;
+                    }
                     result = d;
                 }
             });
@@ -198,6 +207,7 @@ namespace ActiveRagdoll
             DecisionAppliedAt = SimDriver.Time;
             recoverPending = d.Recover;
             Phase = "acting: " + d.Behaviour;
+            if (d.Error != null) EventLog.Write("selector-error", d.Error);
             EventLog.Write("decision",
                 $"{d.Selector}{(d.Fallback ? " (fallback)" : "")} -> {d.Behaviour} stiffness={d.Stiffness:F2} recover={d.Recover} " +
                 $"latency={d.LatencyMs:F1}ms{(LastNote != "" ? " note: " + LastNote : "")}");

@@ -115,3 +115,8 @@ InitTestScene*.unity*
 
 # Event strings written during runs (experiment CSVs will be committed, this log is not)
 Results/event_log.txt
+
+# Python virtual environment for the decision server
+decision_server/.venv/
+decision_server/*.log
+__pycache__/

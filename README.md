@@ -10,7 +10,7 @@ The body is simulated at all times. No kinematic animation plays on it. The deci
 |---|---|
 | 1. Ragdoll that stands and sits with pose targets | done, see results and limitations below |
 | 2. Event sensing, text serialiser, rules selector | done, see below |
-| 3. Decision server (Laya, GLiClass) | not started |
+| 3. Decision server (Laya, GLiClass) | done, see below |
 | 4. Experiment harness and results | not started |
 
 ## Setup
@@ -21,7 +21,17 @@ The body is simulated at all times. No kinematic animation plays on it. The deci
   - `Assets/Scenes/S1_BenchFallingObject.unity`: scenario 1, sitting on a bench, object dropped from above.
   - `Assets/Scenes/S2_StandingImpact.unity`: scenario 2, standing, ball thrown at the body.
 - All scenes and the physics project settings are generated from code. To rebuild them, use the editor menu: `Ragdoll > Build M1 Stand-Sit Scene`, `Ragdoll > Build Scenario Scenes` and `Ragdoll > Apply Physics Project Settings`.
-- In the scenario scenes, N starts the next seed and R reruns the current one. The selector is set on the `ScenarioRunner` object: `fixed`, `rules`, or the test selectors `slow:<ms>`.
+- In the scenario scenes, N starts the next seed and R reruns the current one. The selector is set on the `ScenarioRunner` object: `fixed`, `rules`, `laya`, `gliclass`, or the test selectors `slow:<ms>`.
+- The `laya` and `gliclass` selectors need the decision server (Python 3.11):
+
+```bash
+cd decision_server
+python -m venv .venv
+.venv/Scripts/python -m pip install -r requirements.txt
+powershell -File run_server.ps1
+```
+
+The first start downloads the two pinned checkpoints from Hugging Face. `requirements.lock.txt` is the full `pip freeze` of the environment used for the results.
 
 Keys in play mode (shown in the on-screen panel):
 
@@ -248,6 +258,69 @@ Every random number comes from `System.Random(seed)` in a fixed order, so a seed
 
 This is a smoke test with one selector, so it compares nothing. Milestone 4 runs all four selectors on the same seeds.
 
+## Milestone 3: the decision server
+
+### Server (`decision_server/server.py`)
+
+FastAPI on `127.0.0.1:8765` with one decision endpoint, `POST /decide`, plus `GET /health`. The request carries the event text, the allowed behaviours and the model name. The reply carries the chosen behaviour, a probability for every allowed behaviour, stiffness, the recover flag with its probability, the model time in ms, and the device.
+
+| | Value used |
+|---|---|
+| Python | 3.11.9 |
+| torch | 2.14.1+cu126 |
+| laya | 0.4.12, checkpoint `convaiinnovations/laya` (English root) at commit `7b928d8` |
+| gliclass | 0.1.21, checkpoint `knowledgator/gliclass-modern-base-v3.0` at commit `ac36922` |
+| transformers | 5.20.2 |
+| Device | CUDA, NVIDIA GeForce RTX 4070 SUPER (12 GB) |
+
+Both libraries were checked before use. Laya loads safetensors and runs no code from the model repo, even though the repo contains `.py` files. GLiClass's config loader can call `trust_remote_code=True`, but only for encoders transformers does not know; this checkpoint's encoder is ModernBERT, which transformers supports, and the repo has no code files.
+
+### Laya
+
+I read the package README before writing code. The API used is `laya.load(repo, device=..., revision=...)` and `agent.predict(text, questions)`, which answers all typed questions in one forward pass. Each event asks three questions:
+
+| Question | Laya type | Wording | Output used |
+|---|---|---|---|
+| Which behaviour | `choice` | "How should the character's body react to this event to avoid injury?" with one short description per behaviour (`decision_server/behaviours.py`) | probabilities per behaviour |
+| Muscle stiffness | `score` | five levels from "completely limp" to "rigid, resisting with full force" | expected level ÷ 4, so 0 to 1 |
+| Recover afterwards | `noul` (Laya's yes/no type, returns P(true)) | "After reacting, should the character try to recover its balance or get back up?" | true if P ≥ 0.5 |
+
+Laya's README warns that a choice answer depends on which slot an option is shown in, and offers `option_order` as the fix. The server asks the choice once per rotation of the 7 options (7 rows, still one forward pass) and averages the probabilities. With rotation off, Laya picked `brace`, the first option, for 10 of the 12 sanity cases below.
+
+No few-shot or calibration examples are used for either model. Laya has no few-shot input, only fine-tuning, and I kept GLiClass zero-shot too so the two are compared on the same footing. Laya's own README says the base checkpoints are "near chance on typed-decisions zero-shot" (0.362 against a 0.318 random baseline). The checkpoint also logs a warning that its calibration temperature for choices with 11 or more options is invalid; our choice has 7.
+
+### GLiClass
+
+Behaviour choice only, zero-shot, single-label, with short natural-language labels ("brace for impact", "protect the head with the arms", and so on). In single-label mode the pipeline's normal output keeps only the top label, so the server asks for the hierarchical output, which carries the full softmax. Unity takes stiffness and the recover flag from the rules selector for the same event.
+
+### Unity client (`Assets/Scripts/Decision/HttpModelSelector.cs`)
+
+`System.Net.Http.HttpClient` on the thread pool, not `UnityWebRequest`, so the answer still arrives while a scripted batch run keeps the main thread busy. The first request of a session took 237 ms and timed out, even after a GET warm-up. The client now sends two throwaway `/decide` requests per model before the first trial. If the server is down or replies with an error, the rules selector answers at once and the error is logged.
+
+### Sanity check (`decision_server/sanity_check.py`)
+
+Twelve hand-written event descriptions, each with the behaviours I would accept. They are not taken from the scenario seeds and are never shown to the models as examples. The set only checks whether a model reads the text at all. The expected labels are my own judgement. Full output is in `decision_server/sanity_output*.txt`.
+
+| Model | Device | Acceptable | Choices | Median model time | Median round trip |
+|---|---|---|---|---|---|
+| Laya, rotated | CUDA | 5/12 | fall_and_curl 6, brace 4, go_limp 1, dodge 1 | 42 ms | 44 ms |
+| Laya, not rotated | CUDA | 5/12 | brace 10, fall_and_curl 2 | 25 ms | 26 ms |
+| GLiClass | CUDA | 4/12 | dodge_sideways 8, brace 2, grab 1, go_limp 1 | 12 ms | 14 ms |
+| Laya, rotated | CPU | 5/12 (same answers) | | 1782 ms | 1784 ms |
+| GLiClass | CPU | 4/12 (same answers) | | 44 ms | 46 ms |
+
+What this shows:
+
+- Both models read little of the text. Laya leans to fall_and_curl and GLiClass to dodge_sideways, whatever the event says. Laya's stiffness stayed between 0.39 and 0.59 and its recover answer was "yes" for all 12 cases, so its parameters carry almost no information either.
+- On the GPU both fit easily inside the 200 ms timeout. On CPU, Laya with rotation would always time out and the rules fallback would decide every event.
+
+In Unity, through the full pipeline, Laya answered in 43 to 62 ms and GLiClass in 14 to 20 ms per event. In scenario 1 (5 seeds) Laya chose fall_and_curl and GLiClass dodge_sideways every time. In scenario 2 (6 seeds) Laya chose brace 4 times, dodge once and fall_and_curl once, and GLiClass chose dodge_sideways 5 times and brace once.
+
+### Fixes made while wiring this up
+
+- The standing `dodge_sideways` pose toppled within a second even without an impact: the hips leaned with the trunk and the pose had balance off. The hips now shift the other way as a counterweight and the feet balance stays on. It holds (tilt about 5°) and still moves the head 0.15 to 0.25 m sideways.
+- First-request timeout, see the Unity client above.
+
 ## Limitations and failure cases so far
 
 - **Stagger stepping is weak.** `StepRecovery` aims the swing foot at the capture point and nudges the pelvis upright through the stance hip, in the spirit of SIMBICON (Yin, Loken and van de Panne, 2007). It skips stepping when the capture point is already inside the feet. It helps at 25 N·s (3/4 vs 2/4) but fails at 40 N·s and above in every direction. Traces show two causes. First, the trunk pitches forward during the swing: a full world-frame torso servo on the stance hip kicked the lightly loaded stance foot backward, and the capped version I kept does not hold the trunk. Second, after a step that does capture the fall, the "hold where the legs landed" pose sometimes still tips over. An open-loop version (fixed lift and plant poses) did worse than not reacting at all and was removed.
@@ -258,6 +331,9 @@ This is a smoke test with one selector, so it compares nothing. Milestone 4 runs
 - **One decision per object.** If a ball is anticipated, its impact does not trigger a new decision, even when the impact is much harder than expected. Later events from other causes do trigger decisions. Scenario 2 seed 3 shows one: grab_support, then a fall 2.3 s later during the blend back to stand.
 - **The incoming prediction ignores the body's own motion** and reports the first link the object's path touches. A ball aimed at the head can be reported as heading for the chest when its arc clips the shoulder first.
 - **Impact strength words use the measured collision impulse,** which is lower than the ball's nominal momentum, because the ball bounces off and the body yields. A 41 N·s nominal throw was described as "moderate" in one trial.
+- **Both decision models largely ignore the event text** (see the milestone 3 sanity check). Each has a favourite behaviour. This is measured, not tuned away: no prompt wording was adjusted to raise these numbers.
+- **Laya's stiffness and recover answers barely vary** (0.39 to 0.59; recover always yes in the sanity set).
+- **Laya on CPU is too slow for the 200 ms budget** (about 1.8 s with option rotation).
 - **Real-time play mode needs editor focus.** With the Unity window in the background the player loop stops. This does not affect the scripted tests or the planned batch mode.
 
 ![Standing character in brace, seated character in protect_head](Docs/m1_brace_and_seated_protect.png)

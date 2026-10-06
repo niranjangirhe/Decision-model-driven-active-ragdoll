@@ -36,6 +36,10 @@ namespace ActiveRagdoll
         /// <summary>True when the rules selector answered because the primary selector did not.</summary>
         public bool Fallback;
         public string Error;
+        /// <summary>Model time measured by the server (the rest of LatencyMs is HTTP and queueing).</summary>
+        public float ServerLatencyMs;
+        /// <summary>Device the model ran on ("cuda" or "cpu"), for model selectors.</summary>
+        public string Device;
 
         public static Decision OneHot(string behaviour, float stiffness, bool recover, string selector)
         {

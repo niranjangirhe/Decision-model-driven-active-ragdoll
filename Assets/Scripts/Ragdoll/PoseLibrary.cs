@@ -145,14 +145,18 @@ namespace ActiveRagdoll
 
         /// <summary>
         /// Lean the upper body to one side (<paramref name="side"/> = +1 right, -1 left) to get the head
-        /// out of an object's path. Standing, the hips roll too so the pelvis shifts over the feet.
+        /// out of an object's path. Standing, the hips shift the other way as a counterweight so the
+        /// COM stays over the feet (the first version leaned the hips with the trunk and toppled within
+        /// a second), and the feet balance stays on.
         /// Raw roll sign: +z tilts a link's top toward the left, so leaning right is negative z.
         /// </summary>
         public static Pose DodgeSideways(float side, bool seated)
         {
             float lean = -side;
-            var p = new Pose { Name = "dodge_sideways", Support = seated ? SupportMode.Seat : SupportMode.None }
-                .Set("SpineLower", 5f, 0f, 25f * lean).Set("SpineUpper", 5f, 0f, 20f * lean).Set("Neck", 10f, 0f, 15f * lean)
+            var p = new Pose { Name = "dodge_sideways", Support = seated ? SupportMode.Seat : SupportMode.Feet }
+                .Set("SpineLower", 5f, 0f, (seated ? 25f : 20f) * lean)
+                .Set("SpineUpper", 5f, 0f, (seated ? 20f : 15f) * lean)
+                .Set("Neck", 10f, 0f, 12f * lean)
                 .Sym("Elbow", -40f);
             // Arm on the leaning side goes out to catch a fall; the other tucks in.
             p.Set(side > 0 ? "Shoulder_R" : "Shoulder_L", -20f, 0f, 60f * side);
@@ -164,9 +168,9 @@ namespace ActiveRagdoll
                     p.Angles[leg + "_L"] = Sit.Get(leg + "_L");
                 }
             else
-                p.Sym("Hip", -15f).Sym("Knee", 25f).Sym("Ankle", -10f)
-                 .Set("Hip_R", -15f, 0f, 12f * lean).Set("Hip_L", -15f, 0f, 12f * lean)
-                 .Set("Ankle_R", -10f, 0f, -12f * lean).Set("Ankle_L", -10f, 0f, -12f * lean);
+                p.Set("Hip_R", -15f, 0f, 5f - 8f * lean).Set("Hip_L", -15f, 0f, -5f - 8f * lean)
+                 .Sym("Knee", 25f)
+                 .Set("Ankle_R", -10f, 0f, -5f + 8f * lean).Set("Ankle_L", -10f, 0f, 5f + 8f * lean);
             return p;
         }
 
