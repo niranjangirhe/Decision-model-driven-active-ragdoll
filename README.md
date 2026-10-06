@@ -11,7 +11,7 @@ The body is simulated at all times. No kinematic animation plays on it. The deci
 | 1. Ragdoll that stands and sits with pose targets | done, see results and limitations below |
 | 2. Event sensing, text serialiser, rules selector | done, see below |
 | 3. Decision server (Laya, GLiClass) | done, see below |
-| 4. Experiment harness and results | not started |
+| 4. Experiment harness and results | done, see below (command-line `-batchmode` does not work; the in-editor runner does) |
 
 ## Setup
 
@@ -321,6 +321,92 @@ In Unity, through the full pipeline, Laya answered in 43 to 62 ms and GLiClass i
 - The standing `dodge_sideways` pose toppled within a second even without an impact: the hips leaned with the trunk and the pose had balance off. The hips now shift the other way as a counterweight and the feet balance stays on. It holds (tilt about 5°) and still moves the head 0.15 to 0.25 m sideways.
 - First-request timeout, see the Unity client above.
 
+## Milestone 4: experiment and results
+
+### Running it
+
+The experiment runs every scenario × selector × seed and writes one CSV row per trial. Physics is stepped from script inside play mode, faster than real time, with the camera switched off, so nothing is drawn.
+
+- In the editor: menu `Ragdoll > Run Experiment` (scenarios 1 and 2; fixed, rules, laya, gliclass; seeds 1 to 25). Start the decision server first. If it is not reachable, the model selectors are skipped and an error says so.
+- From the Unity CLI against the open editor, which is how the results below were produced:
+
+```bash
+unity cmd eval --code "ExperimentBatch.RunWith(\"1,2\", \"fixed,rules,laya,gliclass\", 1, 30, \"Results/trials.csv\"); return 0;"
+```
+
+  Play mode only advances while the editor ticks. With the Unity window in the background I kept it ticking by sending `EditorApplication.QueuePlayerLoopUpdate()` every 2 s through the same CLI.
+- Summary table and plots:
+
+```bash
+decision_server/.venv/Scripts/python analysis/summarize.py
+```
+
+  This writes `Results/summary.md` and `Results/plots/*.png` (pandas 3.0.6 and matplotlib 3.11.2, installed in the server's venv).
+
+Command-line batch mode (`Unity.exe -batchmode -executeMethod ExperimentBatch.RunFromCommandLine`) does **not** work; see the failure cases.
+
+### What each CSV row holds
+
+`Results/trials.csv` (selectors A to D) and `Results/trials_baselines.csv` (two extra fixed baselines) have these columns: scenario, seed, selector, the trial setup, the first event's kind and text, the chosen behaviour, the probability of each of the 7 behaviours, stiffness, recover flag, wall-clock and server latency, device, timeout and fallback flags, error and note, number of events handled, head hit and peak head impulse, fell, minimum pelvis height, time to stable posture, upright at the end, and back in the start pose.
+
+- Fell: pelvis below 0.6 m (0.45 m seated) or tilted more than 45° at any time after the launch.
+- Unintended fall: fell although the chosen behaviour was not `fall_and_curl` or `go_limp`.
+- Time to stable: from the first event until the centre of mass first stays below 0.1 m/s for 0.5 s. A body lying still counts as stable.
+- Upright at end: not fallen when the trial ends (6 s after the trial starts).
+
+### Design
+
+Every selector saw the same 30 seeds per scenario, so each seed is the same event (same object, same throw) for every selector until the decision is applied. Besides the four selectors in the brief, I added two more fixed baselines, "always fall_and_curl" and "always dodge_sideways". Each model turned out to have a favourite behaviour, and these baselines show whether a model adds anything beyond that favourite.
+
+360 trials in total. The decision server ran on CUDA (RTX 4070 SUPER).
+
+### Results
+
+![Outcomes per selector](Results/plots/outcomes.png)
+
+| Scenario 1, bench (30 seeds) | head hit | chosen behaviours |
+|---|---|---|
+| A. Fixed, brace | 80% | brace 30 |
+| B. Rules | 27% | dodge 13, protect_head 10, brace 7 |
+| C. Laya | 0% | fall_and_curl 30 |
+| D. GLiClass | 7% | dodge 30 |
+| A2. Fixed, curl | 0% | fall_and_curl 30 |
+| A3. Fixed, dodge | 3% | dodge 30 |
+
+No seated trial fell in any condition.
+
+| Scenario 2, standing (30 seeds, 2 balls missed) | head hit | fell, any reason | unintended fall | upright at end |
+|---|---|---|---|---|
+| A. Fixed, brace | 13% | 10% | 10% | 90% |
+| B. Rules | 13% | 23% | 10% | 77% |
+| C. Laya | 13% | 50% | 3% | 50% |
+| D. GLiClass | 13% | 13% | 13% | 87% |
+| A2. Fixed, curl | 20% | 93% | 0% | 7% |
+| A3. Fixed, dodge | 17% | 13% | 13% | 87% |
+
+![Behaviours chosen](Results/plots/behaviours.png)
+
+![Decision latency](Results/plots/latency.png)
+
+Decision latency (wall clock, Unity to server and back): Laya median 47 ms (p95 60 ms), GLiClass median 15 ms (p95 17 ms). Rules and fixed take microseconds. There was one timeout in 116 model decisions: Laya, in its first scenario 2 trial, answered after the 200 ms limit, and the rules fallback ran instead.
+
+Full tables, including time to stable and agreement with the rules selector: `Results/summary.md`.
+
+### What the results say
+
+1. In scenario 1 the choice of reaction matters a lot. Always bracing let the falling object hit the head in 80% of trials; always curling up let it hit in none. With 30 trials per condition that gap is far larger than chance.
+2. The decision models did not choose by reading the event. Laya chose `fall_and_curl` in all 30 bench trials and GLiClass chose `dodge_sideways` in all 30. Their scenario 1 numbers equal the matching fixed baselines (Laya 0% against always-curl 0%; GLiClass 7% against always-dodge 3%). The good result comes from a constant favourite that happens to suit a seated character, not from a decision. In scenario 2 both models varied their choice more, but without a pattern I could tie to the event text.
+3. The rules selector did worse than the best fixed policy in scenario 1 (27% against 0%). Its `protect_head` choice still let the head be hit in 5 of 10 trials: the arms over the head do not cover a heavy box. Hand-written rules are only as good as the behaviours they call.
+4. In scenario 2 most head hits happen at the moment of impact, before any decision exists, so head-hit rates barely differ (13 to 20%). Falls differ. Bracing kept 90% of trials upright. The rules selector's falls were mostly its own `fall_and_curl` choices for very strong hits (4 of 7). Laya chose `fall_and_curl` or `go_limp` in 14 of 28 trials and went down every time; those are deliberate falls, not losses of balance. Whether that is a good choice depends on what the experiment counts as success, which this prototype does not settle.
+5. Both models fit inside the 200 ms budget on a GPU. On CPU, Laya would not (about 1.8 s per decision, see milestone 3).
+6. Determinism. Rerunning all 360 trials gave identical rows for the rules and fixed selectors. Two model-selector trials differed by a few millimetres in pelvis height, because a model's decision starts after its measured wall-clock latency, and that varies from run to run.
+
+With 30 seeds per condition, a difference of 7 to 10 percentage points (for example GLiClass 7% against always-dodge 3%) is within noise.
+
+### Demo video
+
+Menu `Ragdoll > Record Demo > Scenario 1 (bench)` or `Scenario 2 (standing)`. It opens the scene, plays 4 seeds back to back in real time with the debug overlay, and records 18 s of the Game view to `Recordings/demo_<scenario>_<selector>_seed<n>.mp4` (1280×720, 30 fps, Unity Recorder 5.1.7). Keep the Unity window focused while it records. The selector is the one set on the scene's `ScenarioRunner`. I checked the output: an 18 s, 540-frame MP4 with the overlay visible. `Recordings/` is git-ignored.
+
 ## Limitations and failure cases so far
 
 - **Stagger stepping is weak.** `StepRecovery` aims the swing foot at the capture point and nudges the pelvis upright through the stance hip, in the spirit of SIMBICON (Yin, Loken and van de Panne, 2007). It skips stepping when the capture point is already inside the feet. It helps at 25 N·s (3/4 vs 2/4) but fails at 40 N·s and above in every direction. Traces show two causes. First, the trunk pitches forward during the swing: a full world-frame torso servo on the stance hip kicked the lightly loaded stance foot backward, and the capped version I kept does not hold the trunk. Second, after a step that does capture the fall, the "hold where the legs landed" pose sometimes still tips over. An open-loop version (fixed lift and plant poses) did worse than not reacting at all and was removed.
@@ -334,6 +420,9 @@ In Unity, through the full pipeline, Laya answered in 43 to 62 ms and GLiClass i
 - **Both decision models largely ignore the event text** (see the milestone 3 sanity check). Each has a favourite behaviour. This is measured, not tuned away: no prompt wording was adjusted to raise these numbers.
 - **Laya's stiffness and recover answers barely vary** (0.39 to 0.59; recover always yes in the sanity set).
 - **Laya on CPU is too slow for the 200 ms budget** (about 1.8 s with option rotation).
+- **Command-line batch mode does not work.** `Unity.exe -batchmode -executeMethod ExperimentBatch.RunFromCommandLine` runs the whole flow and writes a CSV, but the rows are wrong. In `-batchmode`, PhysX has not registered a freshly built ArticulationBody when the body is placed in its start pose: the reduced coordinates have no DOFs, Unity asserts `GetInboundJointDof(link) == data.dofCount`, and every trial starts from a broken body. On 12 test trials every one "fell" and scenario 1 saw no events, against the editor run of the same seeds. Running one physics step before the snap did not fix it. `-nographics` made no difference. The controller now logs an error when this happens, so such a run cannot pass silently. The in-editor runner produced all the results above.
+- **The models' wins are not decisions.** In scenario 1 Laya and GLiClass each chose one behaviour for all 30 seeds; their low head-hit rates come from that favourite, and they match the fixed baseline for it.
+- **`protect_head` does not protect against heavy objects.** The rules selector picked it 10 times in scenario 1 and the head was still hit 5 times.
 - **Real-time play mode needs editor focus.** With the Unity window in the background the player loop stops. This does not affect the scripted tests or the planned batch mode.
 
 ![Standing character in brace, seated character in protect_head](Docs/m1_brace_and_seated_protect.png)

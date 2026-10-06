@@ -8,7 +8,7 @@ namespace ActiveRagdoll
     {
         public string Behaviour = Behaviours.Brace;
         public float Stiffness = 1f;
-        public string Name => "fixed";
+        public string Name => Behaviour == Behaviours.Brace ? "fixed" : "fixed:" + Behaviour;
 
         public void Request(CharacterEvent ev, string text, string[] allowed, Action<Decision> onDone)
         {

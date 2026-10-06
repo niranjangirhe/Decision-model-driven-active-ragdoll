@@ -41,6 +41,7 @@ namespace ActiveRagdoll
         public string FirstEventText { get; private set; }
         public CharacterEvent FirstEvent { get; private set; }
         public Decision FirstDecision { get; private set; }
+        public string FirstNote { get; private set; }
         public double DecisionAppliedAt { get; private set; } = -1;
 
         /// <summary>
@@ -90,6 +91,9 @@ namespace ActiveRagdoll
                 case "rules": return new RulesSelector();
                 case "laya": return new HttpModelSelector("laya");
                 case "gliclass": return new HttpModelSelector("gliclass");
+                case var n when n.StartsWith("fixed:"):
+                    // Extra baselines: always the same behaviour, e.g. "fixed:fall_and_curl".
+                    return new FixedSelector { Behaviour = n.Substring(6) };
                 case var n when n.StartsWith("slow:"):
                     return new SlowTestSelector { DelayMs = int.Parse(n.Substring(5)) };
                 default:
@@ -104,7 +108,7 @@ namespace ActiveRagdoll
             requestId++; // late answers from a previous trial are dropped
             Phase = "idle"; LastEvent = null; LastEventText = null; LastDecision = null; LastNote = null;
             EventsHandled = 0; DecisionAppliedAt = -1; lastObjectId = 0;
-            FirstEventText = null; FirstEvent = null; FirstDecision = null;
+            FirstEventText = null; FirstEvent = null; FirstDecision = null; FirstNote = null;
             lock (resultLock) result = null;
         }
 
@@ -204,6 +208,7 @@ namespace ActiveRagdoll
             LastDecision = d;
             if (FirstDecision == null) FirstDecision = d;
             LastNote = executor.Execute(d, LastEvent, Seated);
+            if (FirstNote == null) FirstNote = LastNote;
             DecisionAppliedAt = SimDriver.Time;
             recoverPending = d.Recover;
             Phase = "acting: " + d.Behaviour;

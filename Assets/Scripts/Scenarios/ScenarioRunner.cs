@@ -24,6 +24,8 @@ namespace ActiveRagdoll
         public bool autoStartInPlayMode = true;
         public float settleTime = 1.0f;
         public float trialDuration = 5.0f;
+        [Tooltip("Play mode only: start the next seed automatically when a trial ends (used for demo videos).")]
+        public bool autoAdvance = false;
 
         [Header("Scenario 1 ranges")]
         public Vector2 massRangeKg = new Vector2(1f, 15f);
@@ -84,6 +86,12 @@ namespace ActiveRagdoll
 
         public void SimStep(float dt)
         {
+            if (autoAdvance && Physics.simulationMode == SimulationMode.FixedUpdate
+                && SimDriver.Time >= TrialStartTime + settleTime + trialDuration)
+            {
+                StartTrial(seed + 1);
+                return;
+            }
             if (!launchPending || SimDriver.Time < launchAt) return;
             launchPending = false;
             if (scenario == Scenario.BenchFallingObject) DropObject(); else ThrowBall();
@@ -210,28 +218,80 @@ namespace ActiveRagdoll
 
         // ------------------------------------------------------------------ scripted trial
 
+        [Header("Outcome measurement")]
+        [Tooltip("COM speed (m/s) below which the body counts as still.")]
+        public float stableSpeed = 0.10f;
+        [Tooltip("How long (s) the COM must stay below stableSpeed to count as a stable posture.")]
+        public float stableHold = 0.5f;
+
         /// <summary>
-        /// Run one full trial by stepping physics from script and return a one-line summary.
+        /// Run one full trial by stepping physics from script and return its record.
         /// Respects <see cref="ReactionManager.HoldSimTimeAt"/>, so a slow selector cannot make
         /// simulated time run ahead of the wall-clock time it has used.
+        /// Outcome measures:
+        ///   fell            pelvis ever below the fall height (0.6 m standing, 0.45 m seated) or tilted over 45 deg after launch;
+        ///   time_to_stable  time from the first event (or launch if no event) until the COM speed first stays
+        ///                   below <see cref="stableSpeed"/> for <see cref="stableHold"/> s; a body lying still also counts;
+        ///   recovered       upright (not fallen) at the end of the trial.
         /// </summary>
-        public string RunTrial(int trialSeed)
+        public TrialRecord RunTrialRecord(int trialSeed)
         {
             StartTrial(trialSeed);
             var reaction = character.GetComponent<ReactionManager>();
             var sensor = character.GetComponent<EventSensor>();
             double end = SimDriver.Time + settleTime + trialDuration;
+            bool fell = false;
+            float minPelvis = float.MaxValue;
+            double stillSince = -1, stableAt = -1;
+
             while (SimDriver.Time < end)
             {
                 double? hold = reaction.HoldSimTimeAt;
                 if (hold.HasValue && SimDriver.Time >= hold.Value) { System.Threading.Thread.Sleep(1); continue; }
                 SimDriver.StepOnce();
+                if (SimDriver.Time < launchAt) continue; // still settling
+
+                minPelvis = Mathf.Min(minPelvis, character.PelvisHeight);
+                if (character.HasFallen()) fell = true;
+
+                // Stability is measured from the first event; before it nothing has been disturbed yet.
+                double from = reaction.FirstEvent != null ? reaction.FirstEvent.SimTime : launchAt;
+                if (SimDriver.Time < from) continue;
+                if (stableAt >= 0) continue; // first stable posture only; the later blend back to the start pose does not count
+                if (character.ComVelocity.magnitude < stableSpeed)
+                {
+                    if (stillSince < 0) stillSince = SimDriver.Time;
+                    if (SimDriver.Time - stillSince >= stableHold) stableAt = stillSince - from;
+                }
+                else stillSince = -1;
             }
+
             var d = reaction.FirstDecision;
-            return $"seed={seed} | {TrialSetup} | text: {reaction.FirstEventText ?? "(no event)"} | " +
-                   $"-> {(d != null ? d.Behaviour + $" ({d.Selector}{(d.Fallback ? ", fallback" : "")}, {d.LatencyMs:F1} ms)" : "none")}" +
-                   $"{(string.IsNullOrEmpty(reaction.LastNote) ? "" : " [" + reaction.LastNote + "]")} | " +
-                   $"events={reaction.EventsHandled} headHit={sensor.HeadHit} headPeak={sensor.HeadPeakImpulse:F1}Ns fell={character.HasFallen()} phase={reaction.Phase}";
+            var ev = reaction.FirstEvent;
+            var r = new TrialRecord
+            {
+                Scenario = (int)scenario, Seed = seed, Selector = selectorName, Setup = TrialSetup,
+                EventKind = ev != null ? ev.Kind.ToString() : "none",
+                EventText = reaction.FirstEventText ?? "",
+                EventsHandled = reaction.EventsHandled,
+                HeadHit = sensor.HeadHit, HeadPeakImpulse = sensor.HeadPeakImpulse,
+                FellEver = fell, MinPelvisHeight = minPelvis,
+                TimeToStable = stableAt >= 0 ? (float)stableAt : float.NaN,
+                UprightAtEnd = !character.HasFallen(),
+                BackInStartPose = reaction.Phase == "recovered",
+                Note = reaction.FirstNote ?? "",
+            };
+            if (d != null)
+            {
+                r.Behaviour = d.Behaviour; r.Stiffness = d.Stiffness; r.Recover = d.Recover;
+                foreach (var kv in d.Probabilities) r.Probabilities[kv.Key] = kv.Value;
+                r.LatencyMs = d.LatencyMs; r.ServerLatencyMs = d.ServerLatencyMs > 0 ? d.ServerLatencyMs : float.NaN;
+                r.Device = d.Device ?? ""; r.TimedOut = d.TimedOut; r.Fallback = d.Fallback; r.Error = d.Error ?? "";
+            }
+            return r;
         }
+
+        /// <summary>One trial, as a one-line summary (used when trying things from the CLI).</summary>
+        public string RunTrial(int trialSeed) => RunTrialRecord(trialSeed).Summary();
     }
 }

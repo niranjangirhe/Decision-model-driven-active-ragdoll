@@ -241,6 +241,12 @@ namespace ActiveRagdoll
         /// </summary>
         void SnapToPose(Pose pose)
         {
+            // In -batchmode PhysX has not registered a newly built articulation at this point, so its
+            // reduced coordinates have no DOFs and the snap fails (see README, failure cases). Running
+            // one physics step first did not fix it. In the editor this never happens.
+            if (Body.Pelvis.dofCount == 0)
+                Debug.LogError($"[ActiveRagdoll] articulation not registered (dofCount 0) when snapping to {pose.Name}; " +
+                               "this trial is not valid. Run experiments from the editor, not -batchmode.");
             for (int i = 0; i < Body.Joints.Count; i++)
             {
                 Vector3 a = Body.Joints[i].Clamp(pose.Get(Body.Joints[i].Name));

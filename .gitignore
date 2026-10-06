@@ -120,3 +120,6 @@ Results/event_log.txt
 decision_server/.venv/
 decision_server/*.log
 __pycache__/
+
+# Demo videos from Unity Recorder
+Recordings/
