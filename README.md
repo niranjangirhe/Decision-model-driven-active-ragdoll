@@ -42,91 +42,57 @@ Both models run on the GPU through a local server. Neither was fine-tuned: they 
 
 ## Findings
 
-The experiment has two scenarios with 30 random events each. Every selector faced exactly the same 30 events, with the same object, mass and throw. The first results showed that each model kept repeating one favourite reaction. To check whether the models added anything beyond that favourite, I added two more fixed baselines, "always curl up" and "always dodge". That makes 360 trials in total.
+Each scenario ran 30 random events, and every selector faced the same 30 events, with the same object, mass and throw. Whether the head is hit or the character falls depends as much on how well each reaction is built as on which one is chosen, so those outcomes are not used here to rank the selectors. The full outcome tables are in `Results/summary.md`.
 
-### 1. Picking the right reaction matters
+### What the models chose
 
-In scenario 1, the character sits on a bench, and an object weighing 1 to 15 kg falls on it from 0.5 to 2.5 m above its head.
-
-| Selector | Head hit | Reactions it chose |
+| Selector | Sitting, object falling | Standing, ball thrown |
 |---|---|---|
-| Fixed (brace) | 80% | brace every time |
-| Rules | 27% | dodge 13, protect head 10, brace 7 |
-| Laya | 0% | curl up every time |
-| GLiClass | 7% | dodge every time |
-| Always curl up | 0% | |
-| Always dodge | 3% | |
+| Rules | dodge 13, protect head 10, brace 7 | stagger and recover 12, grab support 5, protect head 4, curl up 4, brace 3 |
+| Laya | curl up 30 | brace 12, curl up 9, go limp 5, dodge 1, stagger and recover 1 |
+| GLiClass | dodge 30 | dodge 20, grab support 5, brace 3 |
 
-Bracing upright leaves the head where the object is going, and the head was hit in 24 of 30 trials. Curling up moves the head down and forward, out of the object's path, and the head was never hit. Leaning sideways works almost as well. Faced with identical events, one reaction leads to a head hit most of the time and another almost never does. This is the case for having a decision layer at all.
+Two standing trials recorded no decision, so those rows add up to 28.
 
-### 2. Without training, the models did not read the events
+The models changed their answers between the two scenes. Sitting on the bench, each gave the same answer every time: Laya always curled up and GLiClass always dodged. Standing, both spread their answers over three to five reactions. Within a scene, though, the choice did not follow the details of the event, such as the object's weight, the time left before impact or where it would land. The rules, which read only those numbers, varied far more. On twelve hand-written test sentences, Laya gave an acceptable answer for 5 and GLiClass for 4.
 
-Laya chose "curl up" for all 30 bench events, and GLiClass chose "dodge" for all 30, whatever the sentence said about the object, its weight or the time left. Their strong bench results come from a favourite reaction that happens to suit a seated character. Laya's numbers are the same as "always curl up", and GLiClass's are the same as "always dodge". In the standing scenario both models varied their choices more, but I could not link the variation to anything in the event.
+This matches Laya's model card, which presents the base checkpoint as a starting point for fine-tuning rather than a zero-shot decision engine. On Convai's own benchmark the base checkpoint scores 0.362, against 0.318 for random guessing, and a fine-tuned checkpoint scores 0.766. Laya also favoured whichever option was listed first (10 of 12 test sentences). Every result here uses the fix its documentation suggests, asking once for each ordering of the options and averaging, which adds about 18 ms.
 
-A separate check agrees. I wrote twelve event sentences by hand and listed the reactions I would accept for each. Laya gave an acceptable answer for 5 of them and GLiClass for 4, again mostly by repeating a favourite. This matches Laya's model card, which describes the base checkpoint as a starting point for fine-tuning rather than a zero-shot decision engine. On Convai's own benchmark the base checkpoint scores 0.362, against 0.318 for random guessing, while a fine-tuned checkpoint scores 0.766. Laya also showed the position bias its documentation warns about. When asked in the plain way, it picked whichever reaction was listed first in 10 of 12 cases. All results in this README use the documented fix, which asks once for each ordering of the options and averages the answers. The fix adds about 18 ms to each decision.
+### Decision time and memory
 
-Used zero-shot, then, neither model makes an informed decision. A model that reads the event would need training on examples, and the simulation can produce those examples itself (see the section on next steps).
+| Selector | Size | GPU memory | Median time | 95th percentile | On a CPU |
+|---|---|---|---|---|---|
+| Rules | a few if/else lines | none | under 0.1 ms | under 0.1 ms | under 0.1 ms |
+| GLiClass | about 150M parameters | 0.6 GB | 15 ms | 17 ms | about 44 ms |
+| Laya | 421M parameters | 1.7 GB | 47 ms | 60 ms | about 1.8 s |
 
-### 3. Rules are only as good as the reactions they call
+Times run from the moment of the event until Unity has the answer, including the round trip to the local server on an RTX 4070 SUPER. GPU memory is each model's peak while answering. The physics steps every 10 ms, so a Laya answer arrives about five steps after the event, well inside the 200 ms budget. Only one of 116 model decisions missed the budget, and the rules took over for that event. On a CPU, Laya would miss the budget every time, while GLiClass would still fit.
 
-The rules made sensible choices. For example, they protected the head when an object was heading for it. Even so, they scored 27% head hits, while always curling up scored 0%. The weak point was the reaction itself. "Protect head" places the arms over the head, and a heavy box falls straight through them: in the 10 trials where the rules picked it, the head was still hit 5 times. A better decision cannot rescue a reaction that does not work, so the reactions need testing as carefully as the selector.
+### What the results show
 
-### 4. When the hit itself is the event, the choice decides whether the character falls
+The pipeline works end to end and in real time: the physics senses an event, the event becomes a sentence, a model decides within 50 ms on a GPU, and the simulated body carries out the decision. The GIF at the top shows why the decision matters, since the same falling box ends differently depending on the reaction.
 
-In scenario 2, the character stands, and a ball weighing 1 to 4 kg is thrown at a random body part from a random direction, at up to 25 m/s.
+Used zero-shot, however, the decision models do not use the details of the event. Their answer depends mostly on the scene, so in practice they behave like one fixed reaction per scene. They are also expensive for what they do. Laya needs 1.7 GB of GPU memory and 47 ms to reach a choice that the rules reach in under 0.1 ms without a GPU.
 
-| Selector | Head hit | Fell (any reason) | Fell by accident | Still upright at the end |
-|---|---|---|---|---|
-| Fixed (brace) | 13% | 10% | 10% | 90% |
-| Rules | 13% | 23% | 10% | 77% |
-| Laya | 13% | 50% | 3% | 50% |
-| GLiClass | 13% | 13% | 13% | 87% |
-| Always curl up | 20% | 93% | 0% | 7% |
-| Always dodge | 17% | 13% | 13% | 87% |
+### How it could be improved
 
-Most balls arrive too fast to be seen coming, so the decision is made after the ball has already struck. This is why the head-hit rate is nearly the same for every selector: a blow to the head has already happened by the time any selector decides. The choice changes what happens next. "Fell by accident" counts falls where the chosen reaction was meant to keep the character standing. Bracing kept the character upright in 90% of trials. Laya went down in half of its trials, but 14 of those 15 falls were its own choice to curl up or go limp, and it lost its balance by accident only once. Whether going down on purpose after a hard hit is good or bad depends on what the character is meant to do, and this experiment does not settle that question.
-
-### 5. Fast enough on a GPU, too slow on a CPU
-
-| Selector | Median decision time | 95th percentile |
-|---|---|---|
-| Rules, fixed | under 0.1 ms | under 0.1 ms |
-| GLiClass | 15 ms | 17 ms |
-| Laya | 47 ms | 60 ms |
-
-These times run from the moment of the event until Unity has the answer, including the round trip to the local server (an RTX 4070 SUPER). The physics steps every 10 ms, so a Laya decision arrives about five steps after the event, well inside the 200 ms budget. Of 116 model decisions, only one (from Laya) missed the budget, and the rules took over for that event. On a CPU, Laya took about 1.8 s per decision and would miss the budget every time. GLiClass took about 44 ms on the CPU.
-
-### 6. The body itself
-
-The simulated body stands and sits stably, and it moves between reactions smoothly, without snapping. Standing still, with only the ankle balance active, it withstands a 15 N·s shove to the chest from any direction, which is roughly a firm push. It starts to fall at about 25 N·s, which is near the physical limit for a body that cannot take a step. When seated, the curled-up posture withstands harder side pushes than the upright one. The stepping reaction, which aims a recovery step at the point the body is falling toward, helps only a little. At 25 N·s it saved one more push direction out of four than doing nothing, and at 40 N·s and above it saved none.
-
-### Conclusion
-
-The whole pipeline runs in real time. The physics senses an event, the event is described in words, a local model decides within 50 ms, and a simulated body carries out the decision. The decision clearly matters: with the same falling box, one reaction gets the head hit and another does not. Used without training, however, the two models do not make that decision well. Each repeats a favourite answer that happens to be right in one scenario and wrong in the other. The speed and the connections between the parts already work well enough. What limits the system now is how the model is trained and how good its reactions are.
+- Fine-tune the decision model on examples labelled by the simulation. For each training event, try every reaction in the physics and keep the one with the best outcome as the label. Laya's own benchmark shows the size of the gain fine-tuning can bring.
+- Use a much smaller model. Before the event becomes a sentence, it is already a handful of numbers (mass, speed, time to impact, where it will hit, free space around the body). A small policy trained with reinforcement learning, or a small classifier, could read those numbers directly. It would need a fraction of the memory and time, and it could run on a CPU.
+- Improve the reactions themselves. "Protect head" raises the arms, but a heavy box falls straight through them. "Grab support" reaches for the railing but cannot hold on to it. There is no reaction for getting up after a fall.
 
 ## Next step: from choosing reactions to generating them
 
-At present the decision model chooses from a fixed list of seven reactions. Physics plays out every reaction, but the list itself works like an animation library: someone must design each reaction in advance, and the model can only pick among them.
+At present the decision model chooses from a fixed list of seven reactions. Physics plays out every reaction, but the list itself works like an animation library: someone must design each reaction in advance.
 
-The natural next step is for the model to output the numbers that drive the body, instead of a name from a list. These would include stiffness for each body part, where each hand should go, where to place the next foot, how far to lower the body, how long to hold, and how fast to recover. The model would produce a new set of numbers for each event and its surroundings, and the physics would turn them into motion that nobody recorded or designed. The flinch would lean a little to the left because the box is a little to the left. A character hit on the leg would limp because that leg has been told to stay weak.
-
-Three further changes point the same way:
-
-- A base motion that keeps going. The character should already be doing something, such as standing, walking, or walking on uneven ground, and reactions should be layered on top. The arms would protect the head while the legs keep walking, and then the reaction would fade and the walk would carry on. A walking controller in the style of SIMBICON could provide this base.
-- Training data from the simulation. For each training event, the simulation would try every candidate reaction, keep the one with the best outcome (head not hit, still standing), and use it as the label. The physics labels the data, and the test events are kept separate.
-- More kinds of event, such as the ground shifting underfoot or tripping while walking.
+The next step is for the model to output the numbers that drive the body instead of a name from a list: stiffness for each body part, where each hand should go, where to place the next foot, and how fast to recover. The physics would turn those numbers into motion that nobody recorded. The flinch would lean a little to the left because the box is a little to the left, and a character hit on the leg would limp because that leg has been told to stay weak. A small reinforcement-learning policy fits this well, since its output is already a set of numbers. Reactions should also be layered on a base motion that keeps going, such as walking on uneven ground, so the arms protect the head while the legs keep walking.
 
 ## Limitations
 
-- Both models were used zero-shot, and they did not read the events (finding 2). I did not tune the prompt wording to raise their scores.
-- There are only 30 events per scenario. Differences of a few percentage points, such as 7% against 3%, are within noise. Large differences, such as 80% against 0%, are not.
-- "Protect head" does not stop heavy objects (finding 3). "Grab support" reaches for the railing but cannot hold on to it. There is no get-up reaction, so "recover" only works while the character is still upright. When seated, "stagger and recover" is replaced by a seated brace, because there is no step to take from a bench.
-- The stepping reaction only handles small pushes (finding 6).
-- Each object triggers only one decision. If a ball is seen coming, its later impact does not trigger a second decision, even if it hits harder than expected.
-- The prediction of incoming objects assumes the body stays still, and it reports the first body part on the object's path. A ball aimed at the head can therefore be reported as heading for the shoulder.
-- With the rule-based and fixed selectors the results are deterministic: rerunning every trial gave identical rows. With the models, a few trials differed by millimetres, because each reaction starts after the measured wall-clock latency, which varies slightly from run to run.
-- Running the experiment from the command line without the editor (`Unity.exe -batchmode`) gives invalid results. In that mode, the physics engine has not finished setting up a newly built body when the body is placed in its start pose. The experiment is therefore run from inside the editor (see below).
-- Walking, planned as scenario 3, was not built.
+- There are only 30 events per scenario, so differences of a few trials are within noise.
+- Each object triggers only one decision, and the prediction of incoming objects assumes the body stays still.
+- The ankle balance withstands a firm push (about 15 N·s to the chest). The stepping reaction adds little beyond that.
+- Running the experiment without the editor (`Unity.exe -batchmode`) gives invalid results, because the physics engine has not finished setting up a newly built body when the body is placed in its start pose. The experiment is run from inside the editor instead.
+- Walking was planned but not built.
 
 ## How it is built
 
