@@ -1,33 +1,35 @@
 # Decision-model-driven active ragdoll
 
-A physically simulated character reacts to surprise events (a box falling on it, a ball hitting it), and a small local language model decides how it reacts. The model reads a one-line description of what just happened, picks a reaction and how tense the muscles should be, and the physics carries the reaction out through the joint motors. No animation clip is ever played on the body; every frame of motion comes from the rigid-body simulation.
+This project is a physically simulated character that reacts to surprise events, such as a box falling on it or a ball hitting it. A small language model, running locally, decides how it reacts. The model reads a one-line description of what just happened and answers with a reaction and a muscle stiffness. The joint motors then carry out that reaction in the physics simulation. The body never plays an animation clip: every frame of its motion comes from the rigid-body simulation.
 
-The idea goes back to Faloutsos, van de Panne and Terzopoulos, *Composable Controllers for Physics-Based Character Animation* (SIGGRAPH 2001), where a supervisor decides which specialist controller takes over the body. Here that supervisor is a decision model that reads text.
+The idea comes from Faloutsos, van de Panne and Terzopoulos, *Composable Controllers for Physics-Based Character Animation* (SIGGRAPH 2001). In that paper, a supervisor decides which specialist controller takes charge of the body. In this project, the supervisor is a decision model that reads text.
 
-The same event, two decisions: a 14 kg box falls toward a seated character.
+Below, the same falling box (14 kg) meets two different decisions. On the left the character braces, and the box hits its head. On the right it curls up, and the box misses.
 
 ![Same falling box, brace on the left, curl up on the right](Docs/media/s1_same_event_two_decisions.gif)
 
-The character sitting on a bench, four different falling objects, reactions chosen by the rule-based selector (protect the head, dodge sideways, brace, dodge):
+Here the character sits on a bench while four different objects fall toward it. The rule-based selector picks the reactions: protect the head, dodge sideways, brace, and dodge again.
 
 ![Scenario 1, bench](Docs/media/s1_bench_rules.gif)
 
-The character standing, four balls thrown at it (step to recover; reach for a railing, which it cannot hold on to yet, so it falls; cover the head; curl up):
+Here the character stands while four balls are thrown at it. The reactions are a recovery step, a reach for the railing (the character cannot hold on to it yet, so it falls), covering the head, and curling up.
 
 ![Scenario 2, standing](Docs/media/s2_standing_rules.gif)
 
-The panel at the top shows what the decision layer saw and did: the event sentence, the chosen reaction with its probability, the time the decision took, and the stiffness the muscles run at.
+The panel at the top of each clip shows what the decision layer saw and did: the sentence describing the event, the chosen reaction and its probability, how long the decision took, and how stiff the muscles are.
 
 ## How it works
 
-1. **The body.** A 15-part humanoid built from capsules and boxes (70 kg, human mass distribution). Every joint is a motor that pulls toward a target angle, with a stiffness that can be turned up (rigid) or down (limp) per body region: legs, torso, arms, neck. A small balance controller keeps the centre of mass over the feet, or over the seat when sitting.
-2. **Sensing.** The simulation watches for events: a collision impulse on a body part, an object whose flight path will hit the body within the next second, a foot hitting an obstacle, both feet leaving the ground.
-3. **Describing.** The event becomes one English sentence from fixed templates, for example: *"Character is sitting on a bench. A heavy object (about 12 kg) is falling toward the head, about 0.4 s until impact. Open space to the left and to the right."*
-4. **A reflex first.** The moment an event is sensed, every muscle tenses briefly. The decision has not arrived yet; a person flinches before they think.
-5. **Deciding.** The sentence goes to a decision selector, which picks one of seven reactions (brace, protect head, stagger and recover, dodge sideways, fall and curl up, go limp, grab a support) plus muscle stiffness and whether to recover afterwards. The reaction starts as soon as the answer arrives, so a slow model costs the character reaction time, just as it would in a real game. If no answer comes within 200 ms, hand-written rules decide instead.
-6. **Acting.** The chosen reaction sets new joint targets and stiffness; the physics produces the motion. After two seconds, if the decision said to recover and the character is still up, it returns to sitting or standing.
+Each event passes through six stages, from the physics to the decision and back to the physics.
 
-Four selectors were compared:
+1. The body is a humanoid made of 15 capsules and boxes, weighing 70 kg in total with a human mass distribution. Every joint has a motor that pulls it toward a target angle. The motor stiffness can be raised (rigid) or lowered (limp) separately for four regions: legs, torso, arms and neck. A small balance controller keeps the centre of mass over the feet when standing, or over the seat when sitting.
+2. The simulation watches for events: a collision impulse on a body part, an object whose flight path will reach the body within the next second, a foot striking an obstacle, or both feet leaving the ground.
+3. Each event is turned into one English sentence built from fixed templates, for example: *"Character is sitting on a bench. A heavy object (about 12 kg) is falling toward the head, about 0.4 s until impact. Open space to the left and to the right."*
+4. As soon as an event is sensed, every muscle tenses briefly. This reflex happens before any decision arrives, in the same way that a person flinches before they have time to think.
+5. The sentence goes to a decision selector. It picks one of seven reactions (brace, protect head, stagger and recover, dodge sideways, fall and curl up, go limp, grab a support), a muscle stiffness, and whether to recover afterwards. The reaction starts only when the answer arrives, so a slow model costs the character reaction time, as it would in a game. If no answer comes within 200 ms, a set of hand-written rules decides instead.
+6. The chosen reaction sets new joint targets and stiffness, and the physics produces the motion. Two seconds later, if the decision asked for recovery and the character is still upright, it returns to sitting or standing.
+
+I compared four selectors:
 
 | Selector | What it is |
 |---|---|
@@ -36,15 +38,15 @@ Four selectors were compared:
 | Laya | Convai's Laya, an open-weights model that answers typed questions (pick one, score, yes/no) in one forward pass. Asked three questions per event: which reaction, how stiff, recover or not. |
 | GLiClass | Knowledgator's zero-shot text classifier. Picks the reaction only; stiffness comes from the rules. |
 
-Both language models run unchanged (zero-shot) on a local server, on the GPU.
+Both language models run on the GPU through a local server. Neither was fine-tuned: they are used zero-shot, exactly as released.
 
 ## Findings
 
-The experiment: two scenarios, 30 random events each, and every selector faced exactly the same 30 events (same object, same mass, same throw). After the four selectors above turned out to repeat one favourite reaction, I added two more fixed baselines, "always curl up" and "always dodge", to see whether the models add anything beyond their favourite. 360 trials in all.
+The experiment has two scenarios with 30 random events each. Every selector faced exactly the same 30 events, with the same object, mass and throw. The first results showed that each language model kept repeating one favourite reaction. To check whether the models added anything beyond that favourite, I added two more fixed baselines, "always curl up" and "always dodge". That makes 360 trials in total.
 
 ### 1. Picking the right reaction matters
 
-Scenario 1: the character sits on a bench and an object of 1 to 15 kg falls on it from 0.5 to 2.5 m above the head.
+In scenario 1, the character sits on a bench, and an object weighing 1 to 15 kg falls on it from 0.5 to 2.5 m above its head.
 
 | Selector | Head hit | Reactions it chose |
 |---|---|---|
@@ -55,23 +57,23 @@ Scenario 1: the character sits on a bench and an object of 1 to 15 kg falls on i
 | Always curl up | 0% | |
 | Always dodge | 3% | |
 
-Bracing upright leaves the head where the object is going, and it was hit in 24 of 30 trials. Curling up moves the head down and forward, out of the falling path, and it was never hit. Leaning sideways works almost as well. On the same events, the choice of reaction is the difference between a head hit most of the time and almost never. That is the case for having a decision layer at all.
+Bracing upright leaves the head where the object is going, and the head was hit in 24 of 30 trials. Curling up moves the head down and forward, out of the object's path, and the head was never hit. Leaning sideways works almost as well. Faced with identical events, one reaction leads to a head hit most of the time and another almost never does. This is the case for having a decision layer at all.
 
 ### 2. The language models did not read the events
 
-Laya chose "curl up" for all 30 bench events and GLiClass chose "dodge" for all 30, whatever the sentence said about the object, its weight or the time left. Their excellent bench results come from that one favourite reaction happening to suit a seated character: Laya's numbers equal "always curl up", and GLiClass's equal "always dodge". In the standing scenario both varied their choices more, but not in a way I could tie to the event.
+Laya chose "curl up" for all 30 bench events, and GLiClass chose "dodge" for all 30, whatever the sentence said about the object, its weight or the time left. Their strong bench results come from a favourite reaction that happens to suit a seated character. Laya's numbers are the same as "always curl up", and GLiClass's are the same as "always dodge". In the standing scenario both models varied their choices more, but I could not link the variation to anything in the event.
 
-A separate check points the same way. On twelve hand-written event sentences with the reactions I would accept, Laya gave an acceptable answer for 5 and GLiClass for 4, again mostly by repeating a favourite. Laya's own documentation says its base model is near chance on this kind of task without fine-tuning, and this matches. Laya also showed the position bias its documentation warns about: asked in the plain way, it picked whichever reaction was listed first in 10 of 12 cases. Every result here uses the documented fix (asking once per ordering of the options and averaging), which costs about 18 ms extra.
+A separate check agrees. I wrote twelve event sentences by hand and listed the reactions I would accept for each. Laya gave an acceptable answer for 5 of them and GLiClass for 4, again mostly by repeating a favourite. Laya's documentation states that its base model is close to chance on this kind of task without fine-tuning, and these results match that. Laya also showed the position bias its documentation warns about. When asked in the plain way, it picked whichever reaction was listed first in 10 of 12 cases. All results in this README use the documented fix, which asks once for each ordering of the options and averages the answers. The fix adds about 18 ms to each decision.
 
-So, used zero-shot, neither model is making an informed decision. A model that reads the event would need training on examples, and the simulation can produce those examples itself (see the last section).
+Used zero-shot, then, neither model makes an informed decision. A model that reads the event would need training on examples, and the simulation can produce those examples itself (see the section on next steps).
 
 ### 3. Rules are only as good as the reactions they call
 
-The rules made sensible choices, protecting the head when an object was heading for it, yet scored 27% head hits against 0% for always curling. The reason is the reaction, not the choice: "protect head" puts the arms over the head, and a heavy box falls through them; the head was still hit in 5 of the 10 trials where the rules picked it. Better decisions cannot fix a reaction that does not work, so the library of reactions has to be tested as carefully as the selector.
+The rules made sensible choices. For example, they protected the head when an object was heading for it. Even so, they scored 27% head hits, while always curling up scored 0%. The weak point was the reaction itself. "Protect head" places the arms over the head, and a heavy box falls straight through them: in the 10 trials where the rules picked it, the head was still hit 5 times. A better decision cannot rescue a reaction that does not work, so the reactions need testing as carefully as the selector.
 
-### 4. When the hit is the event, the choice decides the fall, not the injury
+### 4. When the hit itself is the event, the choice decides whether the character falls
 
-Scenario 2: the character stands and a 1 to 4 kg ball is thrown at a random body part from a random direction, at up to 25 m/s.
+In scenario 2, the character stands, and a ball weighing 1 to 4 kg is thrown at a random body part from a random direction, at up to 25 m/s.
 
 | Selector | Head hit | Fell (any reason) | Fell by accident | Still upright at the end |
 |---|---|---|---|---|
@@ -82,9 +84,9 @@ Scenario 2: the character stands and a 1 to 4 kg ball is thrown at a random body
 | Always curl up | 20% | 93% | 0% | 7% |
 | Always dodge | 17% | 13% | 13% | 87% |
 
-Most balls arrive too fast to see coming, so the decision is made after the ball has already hit. Head-hit rates are therefore nearly the same for every selector: a hit to the head has happened before anyone could decide. What the choice changes is what happens next. "Fell by accident" counts falls where the chosen reaction was meant to stay standing. Bracing kept 90% of trials upright. Laya went down in half the trials, but almost all of those were its own choice to curl up or go limp; it lost its balance by accident only once. Whether choosing to go down after a hard hit is good or bad depends on what one wants the character to do, which this experiment does not settle.
+Most balls arrive too fast to be seen coming, so the decision is made after the ball has already struck. This is why the head-hit rate is nearly the same for every selector: a blow to the head has already happened by the time any selector decides. The choice changes what happens next. "Fell by accident" counts falls where the chosen reaction was meant to keep the character standing. Bracing kept the character upright in 90% of trials. Laya went down in half of its trials, but 14 of those 15 falls were its own choice to curl up or go limp, and it lost its balance by accident only once. Whether going down on purpose after a hard hit is good or bad depends on what the character is meant to do, and this experiment does not settle that question.
 
-### 5. Fast enough on a GPU, not on a CPU
+### 5. Fast enough on a GPU, too slow on a CPU
 
 | Selector | Median decision time | 95th percentile |
 |---|---|---|
@@ -92,37 +94,39 @@ Most balls arrive too fast to see coming, so the decision is made after the ball
 | GLiClass | 15 ms | 17 ms |
 | Laya | 47 ms | 60 ms |
 
-Times are measured from the moment of the event until Unity has the answer, including the trip to the local server (RTX 4070 SUPER). Physics runs every 10 ms, so a Laya decision arrives about five physics steps after the event, well inside the 200 ms budget. Of 116 model decisions, one (from Laya) missed the budget and the rules took over. On a CPU, Laya took about 1.8 s per decision and would miss the budget every time, while GLiClass took about 44 ms.
+These times run from the moment of the event until Unity has the answer, including the round trip to the local server (an RTX 4070 SUPER). The physics steps every 10 ms, so a Laya decision arrives about five steps after the event, well inside the 200 ms budget. Of 116 model decisions, only one (from Laya) missed the budget, and the rules took over for that event. On a CPU, Laya took about 1.8 s per decision and would miss the budget every time. GLiClass took about 44 ms on the CPU.
 
 ### 6. The body itself
 
-The simulated body stands and sits stably and blends between reactions without snapping. Standing still, with only the ankle balance, it takes a 15 N·s shove to the chest from any direction (roughly a firm push) and starts to fall at about 25 N·s; a body that cannot step has a physical limit near there. Sitting, curled up, it takes harder side pushes than sitting upright. The stepping reaction (a recovery step aimed at where the body is falling) helps only a little: at 25 N·s it saved one more push direction out of four than not reacting, and at 40 N·s and above it did not save any.
+The simulated body stands and sits stably, and it moves between reactions smoothly, without snapping. Standing still, with only the ankle balance active, it withstands a 15 N·s shove to the chest from any direction, which is roughly a firm push. It starts to fall at about 25 N·s, which is near the physical limit for a body that cannot take a step. When seated, the curled-up posture withstands harder side pushes than the upright one. The stepping reaction, which aims a recovery step at the point the body is falling toward, helps only a little. At 25 N·s it saved one more push direction out of four than doing nothing, and at 40 N·s and above it saved none.
 
 ### Conclusion
 
-The pipeline works end to end and in real time: events are sensed from the physics, described in words, decided on by a local model within 50 ms, and carried out by a physically simulated body. The decision clearly matters; on the same falling box, one reaction gets the head hit and another does not. But the two language models, used without training, do not yet make that decision; they repeat a favourite answer that happens to be right in one scenario and wrong in another. The limits that showed up are the training of the model and the quality of the reactions it can call, not the speed or the plumbing.
+The whole pipeline runs in real time. The physics senses an event, the event is described in words, a local model decides within 50 ms, and a simulated body carries out the decision. The decision clearly matters: with the same falling box, one reaction gets the head hit and another does not. Used without training, however, the two language models do not make that decision well. Each repeats a favourite answer that happens to be right in one scenario and wrong in the other. The speed and the connections between the parts already work well enough. What limits the system now is how the model is trained and how good its reactions are.
 
-## From choosing reactions to generating them
+## Next step: from choosing reactions to generating them
 
-Today the decision model chooses from a fixed list of seven reactions. Even though every reaction is played out by physics, the list itself works like an animation library: someone has to design each reaction in advance, and the model can only pick among them.
+At present the decision model chooses from a fixed list of seven reactions. Physics plays out every reaction, but the list itself works like an animation library: someone must design each reaction in advance, and the model can only pick among them.
 
-The natural next step is for the decision model to output the numbers that drive the body directly, instead of a name from a list: stiffness per body part, where each hand should go, where to put the next foot, how much to lower the body, how long to hold, and how fast to recover. Given the event and the surroundings, it would produce a new set of numbers each time, and the physics would turn them into motion that nobody recorded or designed: a flinch that is a bit to the left because the box is a bit to the left, or a limp because the hit leg has been told to stay weak. In the same direction:
+The natural next step is for the model to output the numbers that drive the body, instead of a name from a list. These would include stiffness for each body part, where each hand should go, where to place the next foot, how far to lower the body, how long to hold, and how fast to recover. The model would produce a new set of numbers for each event and its surroundings, and the physics would turn them into motion that nobody recorded or designed. The flinch would lean a little to the left because the box is a little to the left. A character hit on the leg would limp because that leg has been told to stay weak.
 
-- **A base motion that keeps going.** The character should be doing something (standing, walking, walking on uneven ground) and reactions should be layered on top of it: the arms protect the head while the legs keep walking, then the reaction fades out and the walk carries on. A walking controller in the spirit of SIMBICON would provide the base.
-- **Training data from the simulation.** For each training event, try the candidate reactions in the physics, keep the one that turned out best (head not hit, still standing), and train the model on those. The physics labels the data, and the test events stay separate.
-- **More events.** The ground shifting under the feet, tripping while walking.
+Three further changes point the same way:
+
+- A base motion that keeps going. The character should already be doing something, such as standing, walking, or walking on uneven ground, and reactions should be layered on top. The arms would protect the head while the legs keep walking, and then the reaction would fade and the walk would carry on. A walking controller in the style of SIMBICON could provide this base.
+- Training data from the simulation. For each training event, the simulation would try every candidate reaction, keep the one with the best outcome (head not hit, still standing), and use it as the label. The physics labels the data, and the test events are kept separate.
+- More kinds of event, such as the ground shifting underfoot or tripping while walking.
 
 ## Limitations
 
-- The language models were used zero-shot, and they did not read the events (finding 2). No prompt wording was tuned to raise their scores.
-- Thirty events per scenario: differences of a few percentage points, such as 7% against 3%, are within noise. The large differences, such as 80% against 0%, are not.
-- "Protect head" does not stop heavy objects (finding 3). "Grab support" reaches for a railing but never holds on to it. There is no get-up reaction, so "recover" only works while the character is still upright. Seated "stagger and recover" is replaced by a seated brace, since there is no step to take from a bench.
-- The stepping reaction only works for small pushes (finding 6).
-- Each object gets one decision. If a ball is seen coming, its later impact does not trigger a second decision, even if it hits harder than expected.
-- The prediction of incoming objects assumes the body stands still and reports the first body part on the object's path, so a ball aimed at the head can be reported as heading for the shoulder.
-- Results are deterministic for the rule-based and fixed selectors: rerunning all trials gave identical rows. With the models, a few trials differed by millimetres, because the reaction starts after the measured wall-clock latency, which varies slightly.
-- Running the experiment from the command line without the editor (`Unity.exe -batchmode`) produces invalid results: in that mode the physics engine has not finished setting up a newly built body when it is placed in its start pose. The experiment is run from inside the editor instead (see below).
-- Walking (scenario 3 in the original plan) was not built.
+- The language models were used zero-shot, and they did not read the events (finding 2). I did not tune the prompt wording to raise their scores.
+- There are only 30 events per scenario. Differences of a few percentage points, such as 7% against 3%, are within noise. Large differences, such as 80% against 0%, are not.
+- "Protect head" does not stop heavy objects (finding 3). "Grab support" reaches for the railing but cannot hold on to it. There is no get-up reaction, so "recover" only works while the character is still upright. When seated, "stagger and recover" is replaced by a seated brace, because there is no step to take from a bench.
+- The stepping reaction only handles small pushes (finding 6).
+- Each object triggers only one decision. If a ball is seen coming, its later impact does not trigger a second decision, even if it hits harder than expected.
+- The prediction of incoming objects assumes the body stays still, and it reports the first body part on the object's path. A ball aimed at the head can therefore be reported as heading for the shoulder.
+- With the rule-based and fixed selectors the results are deterministic: rerunning every trial gave identical rows. With the models, a few trials differed by millimetres, because each reaction starts after the measured wall-clock latency, which varies slightly from run to run.
+- Running the experiment from the command line without the editor (`Unity.exe -batchmode`) gives invalid results. In that mode, the physics engine has not finished setting up a newly built body when the body is placed in its start pose. The experiment is therefore run from inside the editor (see below).
+- Walking, planned as scenario 3, was not built.
 
 ## How it is built
 
@@ -140,11 +144,15 @@ The natural next step is for the decision model to output the numbers that drive
 
 ## Running it
 
-Unity 6000.6.5f1 (Unity 6.6) with URP. Python 3.11 for the decision server and the analysis scripts.
+You need Unity 6000.6.5f1 (Unity 6.6) with URP, and Python 3.11 for the decision server and the analysis scripts.
 
-**Scenes.** Open `Assets/Scenes/S1_BenchFallingObject.unity` or `Assets/Scenes/S2_StandingImpact.unity` and press Play. Events happen one after another with a new random seed each time, and the panel shows each decision. Choose the selector on the `ScenarioRunner` object (`fixed`, `rules`, `laya`, `gliclass`). Play mode only runs while the Unity window has focus. The scenes and physics settings are generated from code: `Ragdoll > Build Scenario Scenes` and `Ragdoll > Apply Physics Project Settings`.
+### Scenes
 
-**Decision server** (needed for `laya` and `gliclass`):
+Open `Assets/Scenes/S1_BenchFallingObject.unity` or `Assets/Scenes/S2_StandingImpact.unity` and press Play. Events then happen one after another, each with a new random seed, and the panel shows every decision. To change the selector, set it on the `ScenarioRunner` object (`fixed`, `rules`, `laya` or `gliclass`). Play mode only runs while the Unity window has focus. The scenes and physics settings are generated from code, through `Ragdoll > Build Scenario Scenes` and `Ragdoll > Apply Physics Project Settings`.
+
+### Decision server
+
+The `laya` and `gliclass` selectors need the decision server:
 
 ```bash
 cd decision_server
@@ -153,23 +161,27 @@ python -m venv .venv
 powershell -File run_server.ps1
 ```
 
-The first start downloads the two models. `requirements.lock.txt` is the exact environment used. `sanity_check.py` runs the twelve hand-written sentences against the server.
+The first start downloads both models. `requirements.lock.txt` records the exact environment used for the results. `sanity_check.py` sends the twelve hand-written sentences to the server.
 
-**Experiment.** `Ragdoll > Run Experiment` runs both scenarios with all four selectors and writes `Results/trials.csv`, one row per trial. Physics is stepped from script, faster than real time, with nothing drawn. The same run can be started from the Unity command-line tool against the open editor:
+### Experiment
+
+`Ragdoll > Run Experiment` runs both scenarios with all four selectors and writes one row per trial to `Results/trials.csv`. The physics is stepped from a script, faster than real time, with nothing drawn on screen. You can also start the same run from the Unity command-line tool against the open editor:
 
 ```bash
 unity cmd eval --code "ExperimentBatch.RunWith(\"1,2\", \"fixed,rules,laya,gliclass\", 1, 30, \"Results/trials.csv\"); return 0;"
 ```
 
-**Summary and figures.**
+### Summary and figures
 
 ```bash
 decision_server/.venv/Scripts/python analysis/summarize.py
 ```
 
-This writes `Results/summary.md` (full tables, including time to a stable posture and agreement between selectors) and `Results/plots/`.
+This writes `Results/summary.md` and the figures in `Results/plots/`. The summary has the full tables, including the time each trial took to reach a stable posture and how often the selectors agreed.
 
-**Videos.** `Ragdoll > Record Demo` records a scenario with Unity Recorder to `Recordings/`. `analysis/make_gifs.py` turns the recordings into the GIFs above.
+### Videos
+
+`Ragdoll > Record Demo` records a scenario to `Recordings/` with Unity Recorder. `analysis/make_gifs.py` turns those recordings into the GIFs shown above.
 
 ## Repository layout
 
@@ -184,6 +196,6 @@ This writes `Results/summary.md` (full tables, including time to a stable postur
 | `decision_server/` | Model server, prompts, sanity check |
 | `analysis/` | Summary tables, figures, GIFs |
 | `Results/` | Trial data, summary, figures |
-| `Docs/media/` | GIFs and stills used here |
+| `Docs/media/` | GIFs used in this README |
 
-The models: Laya by Convai Innovations (Apache-2.0) and GLiClass by Knowledgator (Apache-2.0).
+Both models are released under the Apache-2.0 licence: Laya by Convai Innovations and GLiClass by Knowledgator.
