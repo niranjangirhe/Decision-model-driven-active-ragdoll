@@ -58,12 +58,14 @@ namespace ActiveRagdoll
         void OnGUI()
         {
             if (characters == null || characters.Length == 0) return;
-            if (style == null) style = new GUIStyle(GUI.skin.label) { fontSize = 14, richText = true };
+            if (style == null) style = new GUIStyle(GUI.skin.label) { fontSize = 14, richText = true, wordWrap = true };
             var c = characters[selected];
             if (c == null || c.Body == null) return;
 
+            var rm = c.GetComponent<ReactionManager>();
             string text =
                 $"<b>{c.name}</b>  (Tab to switch)\n" +
+                (rm != null ? ReactionText(rm) : "") +
                 $"pose: <b>{c.CurrentPose?.Name}</b>  blend {c.BlendProgress:P0}\n" +
                 $"stiffness  legs {c.GroupStiffness(BodyGroup.Legs):F2}  torso {c.GroupStiffness(BodyGroup.Torso):F2}  " +
                 $"arms {c.GroupStiffness(BodyGroup.Arms):F2}  neck {c.GroupStiffness(BodyGroup.Neck):F2}\n" +
@@ -74,10 +76,31 @@ namespace ActiveRagdoll
                 $"dt {Time.fixedDeltaTime * 1000f:F1} ms   solver {Physics.defaultSolverIterations}/{Physics.defaultSolverVelocityIterations}\n" +
                 "keys: 1 stand 2 sit 3 brace 4 protect 5 curl 6 stagger 7 limp | U assist  B balance  P push";
 
+            float h = style.CalcHeight(new GUIContent(text), 700f) + 12f;
             GUI.color = new Color(0f, 0f, 0f, 0.6f);
-            GUI.DrawTexture(new Rect(8, 8, 640, 160), Texture2D.whiteTexture);
+            GUI.DrawTexture(new Rect(8, 8, 720, h), Texture2D.whiteTexture);
             GUI.color = Color.white;
-            GUI.Label(new Rect(16, 12, 630, 160), text, style);
+            GUI.Label(new Rect(16, 12, 700, h), text, style);
+        }
+
+        static string ReactionText(ReactionManager rm)
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.Append($"selector: <b>{rm.Selector?.Name}</b>   phase: {rm.Phase}\n");
+            sb.Append($"event: {rm.LastEventText ?? "-"}\n");
+            var d = rm.LastDecision;
+            if (d != null)
+            {
+                sb.Append($"behaviour: <b>{d.Behaviour}</b>  stiffness {d.Stiffness:F2}  recover {d.Recover}  latency {d.LatencyMs:F1} ms");
+                if (d.TimedOut) sb.Append("  <color=orange>TIMEOUT</color>");
+                if (d.Fallback) sb.Append("  <color=orange>fallback: rules</color>");
+                sb.Append("\nprobabilities: ");
+                foreach (var b in Behaviours.All)
+                    sb.Append($"{b} {(d.Probabilities.TryGetValue(b, out var p) ? p : 0f):F2}  ");
+                sb.Append("\n");
+                if (!string.IsNullOrEmpty(rm.LastNote)) sb.Append($"note: {rm.LastNote}\n");
+            }
+            return sb.ToString();
         }
     }
 }

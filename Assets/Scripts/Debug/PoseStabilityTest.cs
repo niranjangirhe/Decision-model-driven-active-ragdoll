@@ -11,20 +11,7 @@ namespace ActiveRagdoll
     public static class PoseStabilityTest
     {
         /// <summary>Advance every ragdoll in the scene by <paramref name="seconds"/> of simulated time.</summary>
-        public static void Simulate(float seconds)
-        {
-            var all = Object.FindObjectsByType<ActiveRagdollController>();
-            float dt = Time.fixedDeltaTime;
-            int steps = Mathf.RoundToInt(seconds / dt);
-            var previous = Physics.simulationMode;
-            Physics.simulationMode = SimulationMode.Script;
-            for (int i = 0; i < steps; i++)
-            {
-                foreach (var c in all) c.Step(dt);
-                Physics.Simulate(dt);
-            }
-            Physics.simulationMode = previous;
-        }
+        public static void Simulate(float seconds) => SimDriver.Advance(seconds);
 
         public class Sample
         {

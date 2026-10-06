@@ -9,15 +9,19 @@ The body is simulated at all times. No kinematic animation plays on it. The deci
 | Milestone | State |
 |---|---|
 | 1. Ragdoll that stands and sits with pose targets | done, see results and limitations below |
-| 2. Event sensing, text serialiser, rules selector | not started |
+| 2. Event sensing, text serialiser, rules selector | done, see below |
 | 3. Decision server (Laya, GLiClass) | not started |
 | 4. Experiment harness and results | not started |
 
 ## Setup
 
 - Unity 6000.6.5f1 (Unity 6.6), URP 17.6. No extra packages are needed for milestone 1.
-- Open `Assets/Scenes/M1_StandSit.unity` and press Play.
-- Both the scene and the physics project settings are generated from code. To rebuild them, use the editor menu: `Ragdoll > Build M1 Stand-Sit Scene` and `Ragdoll > Apply Physics Project Settings`.
+- Scenes:
+  - `Assets/Scenes/M1_StandSit.unity`: one standing and one sitting character, poses by keyboard.
+  - `Assets/Scenes/S1_BenchFallingObject.unity`: scenario 1, sitting on a bench, object dropped from above.
+  - `Assets/Scenes/S2_StandingImpact.unity`: scenario 2, standing, ball thrown at the body.
+- All scenes and the physics project settings are generated from code. To rebuild them, use the editor menu: `Ragdoll > Build M1 Stand-Sit Scene`, `Ragdoll > Build Scenario Scenes` and `Ragdoll > Apply Physics Project Settings`.
+- In the scenario scenes, N starts the next seed and R reruns the current one. The selector is set on the `ScenarioRunner` object: `fixed`, `rules`, or the test selectors `slow:<ms>`.
 
 Keys in play mode (shown in the on-screen panel):
 
@@ -43,7 +47,12 @@ Play mode only advances while the Unity window has focus. The automated tests be
 | `Assets/Scripts/Sim/SimulationSettings.cs` | Timestep and solver settings in one place. |
 | `Assets/Scripts/Debug/RagdollDebugOverlay.cs` | On-screen panel and keyboard controls. |
 | `Assets/Scripts/Debug/PoseStabilityTest.cs` | Scripted pose and push tests used for the numbers below. |
-| `Assets/Editor/RagdollSceneBuilder.cs` | Builds the scene and writes physics project settings. |
+| `Assets/Scripts/Sim/SimDriver.cs` | One clock that steps sensors, reaction layer and ragdoll in order (milestone 2). |
+| `Assets/Scripts/Sensing/` | Event sensing, text serialiser, event log (milestone 2). |
+| `Assets/Scripts/Decision/` | Behaviour list, decision type, fixed and rules selectors (milestone 2). |
+| `Assets/Scripts/Reaction/` | Reflex, request, timeout and fallback, behaviour execution (milestone 2). |
+| `Assets/Scripts/Scenarios/ScenarioRunner.cs` | Seeded scenario 1 and 2 trials (milestone 2). |
+| `Assets/Editor/RagdollSceneBuilder.cs` | Builds the scenes and writes physics project settings. |
 
 Each physics step the controller:
 
@@ -163,12 +172,94 @@ The seated results already show the effect milestone 4 will measure: the choice 
 
 For scale: a pure ankle strategy can absorb a COM speed of roughly foot-length × sqrt(g / COM height) ≈ 0.12 m × 3.1 s⁻¹ ≈ 0.37 m/s. 25 N·s on 70 kg is 0.36 m/s, so the standing thresholds are in the expected range for a body that does not step.
 
+## Milestone 2: event sensing, text, and the rules selector
+
+### One clock for everything
+
+`SimDriver` steps every per-step component in a fixed order, then physics: the sensor first, then the reaction layer, then the ragdoll controller. In play mode its FixedUpdate does this. In scripted runs `SimDriver.Advance` does it and calls `Physics.Simulate` itself, so trials run faster than real time and the editor does not need focus. `SimDriver.Time` is simulated time in both modes.
+
+### Sensing (`Assets/Scripts/Sensing/EventSensor.cs`)
+
+Every event comes from physics:
+
+- Impact: a `LinkContactReporter` on each link forwards collisions. A collision from a moving rigidbody with an impulse of at least 2 N·s is an impact. The strongest link per object per step is reported, once per object. The direction is the object's velocity one step before contact.
+- Incoming: each step the sensor looks for moving rigidbodies within 2.5 m of the chest. It steps each one's ballistic path (gravity, no drag) 1 s ahead at 0.01 s and uses `Collider.ClosestPoint` on every body collider to find the first link it would touch. If that is at least 0.2 s away, an incoming event fires with the time to impact. If it is sooner, there is no time to anticipate, and the sensor waits for the impact instead.
+- Trip: a foot touching an object marked `TripHazard` while the character is walking (scenario 3, not built yet).
+- FootingLost: both feet off the ground for 0.15 s while the pose expects the feet to carry the body.
+
+Each event also carries the character state (sitting, standing, walking, lying), the free distance in four directions (chest-height raycasts, 2 m range), and the nearest `GraspableSupport` within 1 m.
+
+### Text serialiser (`EventSerializer.cs`)
+
+Fixed templates, binned numbers and invariant culture, so the same event always gives the same string. Strength bins: light below 10, moderate below 25, strong below 45, very strong from 45 N·s. Mass bins: light below 2, medium-weight below 6, heavy from 6 kg. Distances are rounded to 0.5 m. Every string goes to `Results/event_log.txt` (git-ignored) together with the trial setup, the decision, timeouts and late answers. Real examples from the runs below:
+
+> Character is sitting on a bench. A heavy object (about 12 kg) is falling toward the head, about 0.4 s until impact. Open space to the left and to the right.
+
+> Character is standing. A moderate impact to the right shoulder from the right. Wall 1.5 m behind. Open space to the left and to the right. A railing is within reach to the right.
+
+> Character is standing. A very strong impact to the right thigh from the right. Wall 1.0 m to the left. Open space to the right.
+
+### Reflex, latency and fallback (`Assets/Scripts/Reaction/ReactionManager.cs`)
+
+1. As soon as an event is sensed, every joint gets a reflex stiffness bump (×1.6, fading out over 0.15 s).
+2. The event text is logged and sent to the selector. The request never blocks: the selector calls back whenever it has an answer, possibly from another thread.
+3. The behaviour starts at event time plus the selector's measured wall-clock latency, in simulated time. A 150 ms model therefore costs the character 150 ms of reaction time, both in play mode and in scripted runs. While a request is open, scripted stepping holds simulated time at event time plus the wall-clock time spent so far, so a slow selector cannot get a head start.
+4. With no answer after 200 ms of wall-clock time, the rules selector answers, and the decision is flagged `TimedOut` and `Fallback`. A late answer is logged and ignored.
+5. After 2 s, if the decision said `recover` and the character is still up, it blends back to its start pose.
+
+Each object gets one decision: the impact of an object that was already anticipated does not trigger a second one. There is a 0.5 s cooldown after a decision. The first event and decision of a trial are kept separately, since that is what the experiment will compare.
+
+I checked this with test selectors that answer from a background thread. `slow:150` answered in 150 ms and its behaviour started 150 ms of sim time after the event. `slow:400` timed out at 200 ms, the rules fallback ran, and the timeout was logged.
+
+### Selectors (`Assets/Scripts/Decision/`)
+
+- Fixed (A): always `brace` at full stiffness.
+- Rules (B): if/else on the numbers, never on the text. A head-bound object that is heavy (6 kg or more), still at least 0.3 s away, with open space to one side, leads to `dodge_sideways`; other head-bound objects lead to `protect_head`. Seated impacts below 25 N·s brace and harder ones curl. Standing impacts below 15 N·s brace; up to 60 N·s with a railing in reach, grab it; up to 45 N·s stagger; harder ones curl. Trips stagger, and losing footing curls. The thresholds come from the milestone 1 push tests.
+
+### Behaviours (`BehaviourExecutor.cs`)
+
+| Behaviour | Standing | Seated |
+|---|---|---|
+| brace | brace pose | seated brace (legs stay in sit) |
+| protect_head | protect_head pose | seated protect_head |
+| stagger_recover | step controller toward the push | seated brace (no step is possible from a bench; logged) |
+| dodge_sideways | lean the trunk and shift the hips to the freer side | lean the trunk sideways, near arm out |
+| fall_and_curl | curl, no balance | curl |
+| go_limp | limp (stiffness ×0.02) | limp |
+| grab_support | reach the near arm toward the support | same, legs in sit |
+
+The decision's stiffness (0 to 1) maps to a group multiplier from 0.05 to 1.5. `grab_support` only reaches: no grasp constraint is made. With no support in reach it is a stub that runs `brace` and says so in the log.
+
+### Scenarios (`Assets/Scripts/Scenarios/ScenarioRunner.cs`)
+
+Every random number comes from `System.Random(seed)` in a fixed order, so a seed gives the same event to every selector. Each trial rebuilds the body, waits 1 s, launches, and runs 5 s.
+
+- Scenario 1: object mass 1 to 15 kg (a box sized for a density of 800 kg/m³), dropped 0.5 to 2.5 m above the head with a horizontal offset of up to 0.35 m.
+- Scenario 2: a 1 to 4 kg ball thrown from 3 m at a random azimuth toward a random body part, with a nominal impulse of 10 to 80 N·s (speed capped at 25 m/s). A wall appears 40% of the time (left, right or behind, 0.8 to 1.5 m away) and a railing 30% of the time.
+
+### First run, rules selector, 20 seeds each
+
+| | Scenario 1 (bench) | Scenario 2 (standing) |
+|---|---|---|
+| Event type | 20 incoming | 18 impact, 2 incoming |
+| Behaviours chosen | dodge 9, protect_head 6, brace 5 | stagger 9, grab_support 3, protect_head 3, fall_and_curl 3, brace 2 |
+| Head hit | 5 | 3 |
+| Fell | 0 | 5 |
+
+This is a smoke test with one selector, so it compares nothing. Milestone 4 runs all four selectors on the same seeds.
+
 ## Limitations and failure cases so far
 
 - **Stagger stepping is weak.** `StepRecovery` aims the swing foot at the capture point and nudges the pelvis upright through the stance hip, in the spirit of SIMBICON (Yin, Loken and van de Panne, 2007). It skips stepping when the capture point is already inside the feet. It helps at 25 N·s (3/4 vs 2/4) but fails at 40 N·s and above in every direction. Traces show two causes. First, the trunk pitches forward during the swing: a full world-frame torso servo on the stance hip kicked the lightly loaded stance foot backward, and the capped version I kept does not hold the trunk. Second, after a step that does capture the fall, the "hold where the legs landed" pose sometimes still tips over. An open-loop version (fixed lift and plant poses) did worse than not reacting at all and was removed.
 - **No true lateral recovery without stepping.** After a side push the stiff body pivots on the outer edge of one foot. Once a foot is on its edge, ankle torque only rotates the foot, so the ankle strategy cannot pull the body back. Widening the stance (hip roll 5 degrees) raised the sideways threshold from below 20 N·s to about 25 N·s.
 - **Determinism depends on the whole scene.** Three repeats of the same push and stagger gave identical pelvis positions twice and a 2 mm difference once. The other character in the scene was in a different state between runs, which changes the solver's ordering. Batch trials will run one character per scene and reset everything.
 - **`stand → sit` without a bench falls**, and `limp` while seated slides off the bench. Both are expected; they are listed so nobody mistakes them for bugs.
+- **Some milestone 2 behaviours are partial.** `grab_support` reaches but never grasps. There is no get-up behaviour, so `recover` only works while the character is still upright. Seated `stagger_recover` is replaced by a seated brace.
+- **One decision per object.** If a ball is anticipated, its impact does not trigger a new decision, even when the impact is much harder than expected. Later events from other causes do trigger decisions. Scenario 2 seed 3 shows one: grab_support, then a fall 2.3 s later during the blend back to stand.
+- **The incoming prediction ignores the body's own motion** and reports the first link the object's path touches. A ball aimed at the head can be reported as heading for the chest when its arc clips the shoulder first.
+- **Impact strength words use the measured collision impulse,** which is lower than the ball's nominal momentum, because the ball bounces off and the body yields. A 41 N·s nominal throw was described as "moderate" in one trial.
 - **Real-time play mode needs editor focus.** With the Unity window in the background the player loop stops. This does not affect the scripted tests or the planned batch mode.
 
 ![Standing character in brace, seated character in protect_head](Docs/m1_brace_and_seated_protect.png)
+
+![Scenario 1, seed 2: the rules selector chose dodge_sideways and the 12 kg box lands beside the head](Docs/m2_s1_dodge.png)

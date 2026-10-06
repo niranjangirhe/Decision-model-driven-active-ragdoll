@@ -112,3 +112,6 @@ InitTestScene*.unity*
 
 # Auto-generated cache in Assets folder
 /[Aa]ssets/[Ss]ceneDependencyCache*
+
+# Event strings written during runs (experiment CSVs will be committed, this log is not)
+Results/event_log.txt

@@ -144,6 +144,50 @@ namespace ActiveRagdoll
         }
 
         /// <summary>
+        /// Lean the upper body to one side (<paramref name="side"/> = +1 right, -1 left) to get the head
+        /// out of an object's path. Standing, the hips roll too so the pelvis shifts over the feet.
+        /// Raw roll sign: +z tilts a link's top toward the left, so leaning right is negative z.
+        /// </summary>
+        public static Pose DodgeSideways(float side, bool seated)
+        {
+            float lean = -side;
+            var p = new Pose { Name = "dodge_sideways", Support = seated ? SupportMode.Seat : SupportMode.None }
+                .Set("SpineLower", 5f, 0f, 25f * lean).Set("SpineUpper", 5f, 0f, 20f * lean).Set("Neck", 10f, 0f, 15f * lean)
+                .Sym("Elbow", -40f);
+            // Arm on the leaning side goes out to catch a fall; the other tucks in.
+            p.Set(side > 0 ? "Shoulder_R" : "Shoulder_L", -20f, 0f, 60f * side);
+            p.Set(side > 0 ? "Shoulder_L" : "Shoulder_R", -40f, 0f, -10f * side);
+            if (seated)
+                foreach (var leg in new[] { "Hip", "Knee", "Ankle" })
+                {
+                    p.Angles[leg + "_R"] = Sit.Get(leg + "_R");
+                    p.Angles[leg + "_L"] = Sit.Get(leg + "_L");
+                }
+            else
+                p.Sym("Hip", -15f).Sym("Knee", 25f).Sym("Ankle", -10f)
+                 .Set("Hip_R", -15f, 0f, 12f * lean).Set("Hip_L", -15f, 0f, 12f * lean)
+                 .Set("Ankle_R", -10f, 0f, -12f * lean).Set("Ankle_L", -10f, 0f, -12f * lean);
+            return p;
+        }
+
+        /// <summary>
+        /// Reach toward a support (grab_support). <paramref name="dir"/> is the heading-frame direction
+        /// to the support. Only a reach: no grasp constraint is created (see README).
+        /// </summary>
+        public static Pose ReachFor(Vector2 dir, bool seated)
+        {
+            bool right = dir.x >= 0f;
+            float side = right ? 1f : -1f;
+            var reach = new Pose { Name = "grab_support" }
+                .Sym("Hip", -20f, 0f, 5f).Sym("Knee", 30f).Sym("Ankle", -10f, 0f, -5f)
+                .Set("SpineLower", 8f, 0f, -10f * side).Set("SpineUpper", 0f).Set("Neck", 0f)
+                .Sym("Shoulder", -40f, 0f, 15f).Sym("Elbow", -60f);
+            reach.Set(right ? "Shoulder_R" : "Shoulder_L", -85f * Mathf.Max(0f, dir.y), 0f, 85f * Mathf.Abs(dir.x) * side)
+                 .Set(right ? "Elbow_R" : "Elbow_L", -10f);
+            return seated ? Seated(reach) : reach;
+        }
+
+        /// <summary>
         /// Seated version of a pose: legs and support from <see cref="Sit"/>, upper body from <paramref name="upper"/>.
         /// Behaviours use this when the character is sitting, so a seated brace does not try to stand up.
         /// </summary>

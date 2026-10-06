@@ -12,7 +12,7 @@ namespace ActiveRagdoll
     /// Optional: an upright-assist torque on the pelvis (a crutch, off by default).
     /// </summary>
     [DefaultExecutionOrder(-50)]
-    public class ActiveRagdollController : MonoBehaviour
+    public class ActiveRagdollController : MonoBehaviour, ISimStep
     {
         [Header("Spawn")]
         public string startPose = "stand";
@@ -69,6 +69,16 @@ namespace ActiveRagdoll
         public float TrunkOffset { get; private set; }
         public float PelvisHeight => Body.Pelvis.transform.position.y;
         public float HeadHeight => Body.Links["Head"].worldCenterOfMass.y;
+        /// <summary>
+        /// Fallen: pelvis well below its height in the start pose (0.6 m standing, 0.45 m seated)
+        /// or tilted more than 45 deg. Used by the tests and the experiment log.
+        /// </summary>
+        public bool HasFallen()
+        {
+            bool seated = startPose == PoseLibrary.Sit.Name;
+            return PelvisHeight < (seated ? 0.45f : 0.6f) || PelvisTilt > 45f;
+        }
+
         /// <summary>Angle (deg) between the pelvis up axis and world up.</summary>
         public float PelvisTilt => Vector3.Angle(Body.Pelvis.transform.up, Vector3.up);
 
@@ -93,6 +103,7 @@ namespace ActiveRagdoll
         readonly float[] currentStiffness = { 1f, 1f, 1f, 1f };
         Vector3[] fromTargets, toTargets, currentTargets, commandedTargets;
         float blendTimer, blendDuration;
+        float reflexScale = 1f, reflexDuration, reflexTimer;
         readonly Queue<PoseStep> pendingSteps = new Queue<PoseStep>();
         readonly Dictionary<string, int> jointIndex = new Dictionary<string, int>();
         Vector3[] frameTargets;
@@ -121,7 +132,11 @@ namespace ActiveRagdoll
             foreach (var ab in Body.Links.Values) totalMass += ab.mass;
 
             for (int i = 0; i < 4; i++) currentStiffness[i] = TargetStiffness((BodyGroup)i);
+            BodyBuilt?.Invoke();
         }
+
+        /// <summary>Raised after the body is (re)built, so sensors can attach to the new links.</summary>
+        public event System.Action BodyBuilt;
 
         // ------------------------------------------------------------------ API
 
@@ -259,15 +274,26 @@ namespace ActiveRagdoll
 
         // ------------------------------------------------------------------ Physics step
 
-        void FixedUpdate()
+        public int StepOrder => 20;
+        void OnEnable() => SimDriver.Register(this);
+        void OnDisable() => SimDriver.Unregister(this);
+
+        /// <summary>
+        /// Reflex: multiply every group's stiffness by <paramref name="scale"/> for <paramref name="duration"/>
+        /// seconds, fading out linearly. Used the moment an event is sensed, before any decision exists.
+        /// </summary>
+        public void ApplyReflex(float scale, float duration)
         {
-            // In batch runs physics is stepped by script (Physics.Simulate) and the runner calls Step itself.
-            if (Physics.simulationMode == SimulationMode.FixedUpdate) Step(Time.fixedDeltaTime);
+            reflexScale = scale; reflexDuration = duration; reflexTimer = 0f;
         }
 
-        /// <summary>One control step. Call once before each physics step.</summary>
-        public void Step(float dt)
+        public float ReflexScale => reflexTimer < reflexDuration
+            ? Mathf.Lerp(reflexScale, 1f, reflexTimer / reflexDuration) : 1f;
+
+        /// <summary>One control step, called by <see cref="SimDriver"/> before each physics step.</summary>
+        public void SimStep(float dt)
         {
+            reflexTimer += dt;
 
             // 1. Pose blending (smoothstep), then the next pose of a sequence if any.
             if (BlendProgress >= 1f && pendingSteps.Count > 0)
@@ -296,7 +322,7 @@ namespace ActiveRagdoll
             else ComputeBalance();
 
             // 3. Drives.
-            float poseScale = CurrentPose != null ? CurrentPose.Stiffness : 1f;
+            float poseScale = (CurrentPose != null ? CurrentPose.Stiffness : 1f) * ReflexScale;
             for (int i = 0; i < Body.Joints.Count; i++)
             {
                 var joint = Body.Joints[i];

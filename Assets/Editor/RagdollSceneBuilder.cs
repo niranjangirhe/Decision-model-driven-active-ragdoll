@@ -65,6 +65,53 @@ public static class RagdollSceneBuilder
         Debug.Log("[RagdollSceneBuilder] Built " + StandSitScenePath);
     }
 
+    public const string Scenario1Path = "Assets/Scenes/S1_BenchFallingObject.unity";
+    public const string Scenario2Path = "Assets/Scenes/S2_StandingImpact.unity";
+
+    [MenuItem("Ragdoll/Build Scenario Scenes")]
+    public static void BuildScenarioScenes()
+    {
+        BuildScenarioScene(Scenario.BenchFallingObject, Scenario1Path);
+        BuildScenarioScene(Scenario.StandingImpact, Scenario2Path);
+    }
+
+    static void BuildScenarioScene(Scenario scenario, string path)
+    {
+        var scene = EditorSceneManager.NewScene(NewSceneSetup.DefaultGameObjects, NewSceneMode.Single);
+        new GameObject("SimulationSettings").AddComponent<SimulationSettings>();
+        new GameObject("SimDriver").AddComponent<SimDriver>();
+        MakeGround();
+
+        Transform seat = null;
+        bool seated = scenario == Scenario.BenchFallingObject;
+        if (seated)
+        {
+            var bench = MakeBox("Bench", new Vector3(0f, 0.225f, 0f), new Vector3(1.2f, 0.45f, 0.40f), new Color(0.45f, 0.35f, 0.25f));
+            seat = new GameObject("SeatAnchor").transform;
+            seat.SetParent(bench.transform, false);
+            seat.position = new Vector3(0f, 0.45f, 0f);
+        }
+
+        var character = MakeCharacter("Character", Vector3.zero, seated ? "sit" : "stand", seat, new Color(0.85f, 0.55f, 0.35f));
+        character.gameObject.AddComponent<EventSensor>();
+        character.gameObject.AddComponent<ReactionManager>();
+
+        var runner = new GameObject("ScenarioRunner").AddComponent<ScenarioRunner>();
+        runner.scenario = scenario;
+        runner.character = character;
+
+        var overlay = new GameObject("DebugOverlay").AddComponent<RagdollDebugOverlay>();
+        overlay.characters = new[] { character };
+
+        var cam = Camera.main;
+        cam.transform.position = new Vector3(2.2f, 1.6f, 3.2f);
+        cam.transform.LookAt(new Vector3(0f, 0.9f, 0f));
+
+        EditorSceneManager.SaveScene(scene, path);
+        AddToBuild(path);
+        Debug.Log("[RagdollSceneBuilder] Built " + path);
+    }
+
     static ActiveRagdollController MakeCharacter(string name, Vector3 pos, string pose, Transform seat, Color color)
     {
         var go = new GameObject(name);
